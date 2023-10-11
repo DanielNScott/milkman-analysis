@@ -1,0 +1,66 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+Created on Tue Feb  7 20:08:37 2023
+
+@author: dan
+"""
+%reset -f 
+%matplotlib
+
+# Standard imports
+from matplotlib import pyplot as plt
+import numpy  as np
+import scipy  as sp
+
+# Project imports 
+from reads import read_subjects
+from analy import analyze_subjects, get_policy_models, get_noham_AES_stay_rho
+import plots as p
+
+# Toggle for plotting
+make_plots = False
+
+#--------------------------------- Analysis --------------------------------#
+# Get subject data
+subj, grp, ns, files = read_subjects()
+
+# Derive a bunch of by-subject fields
+grp = analyze_subjects(subj, grp)
+
+# Get policy models and associated info
+model_ve, model_rve, model_beta, model_proj = get_policy_models(subj, grp)
+
+# Check association between AES and stay-baseline
+get_noham_AES_stay_rho(subj, grp)
+
+
+#---------------------------------  Plots -----------------------------------#
+if make_plots:
+    
+    # Subject durations by condition
+    p.plot_durations(grp)
+    
+    # How much do subjects differentiate?
+    p.plot_differentiation(grp)
+    
+    # Reduced policy model comparison of timing and reward variance explained 
+    p.plot_policy_models(model_ve, model_rve)
+    
+    # Policy space: reward contours in duration vs differntiation
+    p.plot_policy_sweep_heatmap()
+    
+    # Subjects' policies in policy space
+    p.plot_policy_space_subjs(grp)
+    
+    # Distributions of subjects stay-duration slopes
+    p.plot_policy_slope_CDFs(grp)
+    
+    # Initial and final distributions of policy-quality
+    p.plot_policy_rew_CDFs(grp)
+    
+    # Impacts of policy changes on reward
+    p.plot_policy_rew_deltas(grp)
+
+
+
