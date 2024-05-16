@@ -15,7 +15,7 @@ import scipy  as sp
 
 # Project imports 
 from reads import read_subjects
-from analy import analyze_subjects, get_policy_models, get_noham_AES_stay_rho
+from analy import analyze_subjects, get_policy_models#, get_noham_AES_stay_rho
 import plots as p
 
 # Toggle for plotting
@@ -32,7 +32,7 @@ grp = analyze_subjects(subj, grp)
 model_ve, model_rve, model_beta, model_proj = get_policy_models(subj, grp)
 
 # Check association between AES and stay-baseline
-get_noham_AES_stay_rho(subj, grp)
+#get_noham_AES_stay_rho(subj, grp)
 
 
 #---------------------------------  Plots -----------------------------------#

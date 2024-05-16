@@ -30,6 +30,13 @@ def analyze_subjects(subj, grp):
     grp['lat_std'] = [np.std(subj[i].time_to_response)    for i in range(0,ns)]
     grp['dur_std'] = [np.std(subj[i].space_down_time)     for i in range(0,ns)]
     grp['hgt_std'] = [np.std(subj[i].height)              for i in range(0,ns)]
+
+    grp['hgt_std'] = [np.std(subj[i].height)              for i in range(0,ns)]
+
+    grp['dur_skw'] = [sp.stats.skew(subj[s].space_down_time) for s in range(0,ns)]
+    grp['dur_skw_rob'] = [sm.stats.stattools.robust_skewness(subj[s].space_down_time)[2] for s in range(0,ns)]
+    grp['dur_skw_exc'] = grp.dur_skw - grp.dur_skw_rob
+    grp['dur_skw_rank'] = get_rank(grp.dur_skw)
     
     grp['ntrials'] = [subj[i].trial_number.iloc[-1]       for i in range(0,ns)]
     
@@ -37,6 +44,7 @@ def analyze_subjects(subj, grp):
     grp['rew_rank'] = get_rank(grp.rew_tot)
     grp['aes_rank'] = get_rank(grp.aes)
     grp['dur_rank'] = get_rank(grp.dur_avg)
+    grp['lat_rank'] = get_rank(grp.lat_avg)
     
     # Defrag to avoid annoying warnings
     frame = grp.copy()
@@ -523,15 +531,13 @@ def run_lm(y, X, disp = True, zscore = False, robust = False):
     return res
 
 
-def get_noham_AES_stay_rho(subj, grp):
+def get_noham_AES_stay_rho_1(subj, grp):
     
     # Number of subjects
     ns = len(subj)
     
     # Beta lists (to frame later)
-    b0 = []
-    b1 = []
-    b2 = []
+    b0, b1, b2 = [], [], []
     
     # Loop through subjects getting their betas
     for s in range(0, ns):
@@ -546,32 +552,186 @@ def get_noham_AES_stay_rho(subj, grp):
         # Replace booleans with init and decay parameter values
         X2['h-'].map(lambda x: 0.02   if x == 1 else 0.01  )
         X2['-h'].map(lambda x: 0.0004 if x == 1 else 0.0002)
-    
+        
         # Add intercept to model
         X2 = sm.add_constant(X2)
     
         # Generate and fit
-        mod = sm.RLM(subj[s].space_down_time, X2)
+        mod = sm.OLS(subj[s].space_down_time, X2)
         res = mod.fit()
-    
+        
         # Save the beta values
         b0.append(res.params.const)
         b1.append(res.params['h-'])
         b2.append(res.params['-h'])
-    
+
+
     # Concatenate betas into a frame
     betas = pd.DataFrame([b0,b1,b2], index=['b0', 'b1', 'b2']).T
     
     # Predict AES with betas (linear model)
-    res = run_lm(grp.aes, betas)
-    
+    #res = run_lm(grp.aes, betas, zscore = True, robust = True)
+
     # Correlate AES rank with beta 0
     res = sp.stats.spearmanr(grp.aes, b0)
-    
+        
     print('\nSpearman rho (AES, Stay-Baseline):')
     print(res.statistic)
     
     print('\np-value:')
     print(res.pvalue)
 
-    #return res.params.const
+    return betas
+
+
+def get_noham_AES_stay_rho_2(subj, grp):
+    
+    # Number of subjects
+    ns = len(subj)
+    
+    # Beta lists (to frame later)
+    b0, b1, b2 = [], [], []
+    
+    # Loop through subjects getting their betas
+    for s in range(0, ns):
+        
+        # Get subject duration data
+        X = subj[s][['S', 'decay_rate']]
+    
+        # Add intercept to model
+        X = sm.add_constant(X)
+    
+        # Generate and fit
+        mod = sm.RLM(subj[s].space_down_time, X)
+        res = mod.fit()
+        
+        # Save the beta values
+        b0.append(res.params.const)
+        b1.append(res.params['S'])
+        b2.append(res.params['decay_rate'])
+
+    # Concatenate betas into a frame
+    betas = pd.DataFrame([b0,b1,b2], index=['b0', 'b1', 'b2']).T
+    
+    # Predict AES with betas (linear model)
+    #res = run_lm(grp.aes_rank, betas, zscore = False, robust = True)
+
+    # Correlate AES rank with beta 0
+    res = sp.stats.spearmanr(grp.aes, b0)
+        
+    print('\nSpearman rho (AES, Stay-Baseline):')
+    #print(res.statistic)
+    print(res)
+    
+    print('\np-value:')
+    print(res.pvalue)
+
+    return betas
+
+
+def get_noham_AES_stay_rho_3(subj, grp):
+    
+    # Number of subjects
+    ns = len(subj)
+    
+    # Beta lists (to frame later)
+    b0, b1, b2 = [], [], []
+    
+    # Loop through subjects getting their betas
+    for s in range(0, ns):
+        
+        # Get subject duration data
+        X = subj[s][['S', 'decay_rate']]
+        X = sp.stats.zscore(X)
+    
+        # Add intercept to model
+        X = sm.add_constant(X)
+        
+        # Outcome variable
+        #y = sp.stats.zscore(subj[s].space_down_time)
+        y =  subj[s].space_down_time
+        
+        # Generate and fit
+        mod = sm.RLM(y, X)
+        res = mod.fit()
+        
+        # Save the beta values
+        b0.append(res.params.const)
+        b1.append(res.params['S'])
+        b2.append(res.params['decay_rate'])
+
+    # Concatenate betas into a frame
+    betas = pd.DataFrame([b0,b1,b2], index=['b0', 'b1', 'b2']).T
+    
+    # Predict AES with betas (linear model)
+    # res = run_lm(grp.aes, betas, zscore = True, robust = True)
+
+    # Correlate AES rank with beta 0
+    res = sp.stats.spearmanr(grp.aes, b0)
+        
+    print('\nSpearman rho (AES, Stay-Baseline):')
+    print(res.statistic)
+    
+    print('\np-value:')
+    print(res.pvalue)
+
+    return betas
+
+
+def get_noham_AES_stay_rho_4(subj, grp):
+    
+    # Number of subjects
+    ns = len(subj)
+    
+    # Beta lists (to frame later)
+    b0, b1, b2 = [], [], []
+    
+    # Loop through subjects getting their betas
+    for s in range(0, ns):
+        
+        # Get subject duration data
+        X = subj[s][['S', 'decay_rate']]
+        X = sp.stats.zscore(X)
+    
+        # Add intercept to model
+        X = sm.add_constant(X)
+        
+        # Outcome variable
+        #y = sp.stats.zscore(subj[s].space_down_time)
+        
+        y = robust_zscore(subj[s].space_down_time)
+        
+        # Generate and fit
+        mod = sm.RLM(y, X)
+        res = mod.fit()
+        
+        # Save the beta values
+        b0.append(res.params.const)
+        b1.append(res.params['S'])
+        b2.append(res.params['decay_rate'])
+
+    # Concatenate betas into a frame
+    betas = pd.DataFrame([b0,b1,b2], index=['b0', 'b1', 'b2']).T
+    
+    # Predict AES with betas (linear model)
+    # res = run_lm(grp.aes, betas, zscore = True, robust = True)
+
+    # Correlate AES rank with beta 0
+    res = sp.stats.spearmanr(grp.aes, b0)
+        
+    print('\nSpearman rho (AES, Stay-Baseline):')
+    print(res.statistic)
+    
+    print('\np-value:')
+    print(res.pvalue)
+
+    return betas
+
+
+
+def robust_zscore(x):
+    z = x - np.median(x)
+    mad = np.median(np.abs(z))
+    
+    return z/mad
+    
