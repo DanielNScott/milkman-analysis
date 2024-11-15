@@ -1,66 +1,104 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-"""
-Created on Tue Feb  7 20:08:37 2023
-
-@author: dan
-"""
-%reset -f 
-%matplotlib
-
 # Standard imports
 from matplotlib import pyplot as plt
 import numpy  as np
 import scipy  as sp
 
 # Project imports 
-from reads import read_subjects
-from analy import analyze_subjects, get_policy_models#, get_noham_AES_stay_rho
-import plots as p
+from reads import *
+from analy import *
+from plots import *
 
 # Toggle for plotting
-make_plots = False
+make_plots = True
+plt.ion()
 
-#--------------------------------- Analysis --------------------------------#
-# Get subject data
-subj, grp, ns, files = read_subjects()
+# Read data, get basic foraging stats, QC
+subj, grp = read_subjects(summary_only = True)      # Get subject data
+grp = get_foraging_response_stats(subj, grp)        # Extract basic subject foraging behaviour
+grp = basic_quality_controls(grp)                   # Pre-analysis quality controls
 
-# Derive a bunch of by-subject fields
-grp = analyze_subjects(subj, grp)
+droplist = np.where(grp['ntrials'] < 20)[0]         # Subject without enough by-condition data
+subj, grp = drop_subjects(subj, grp, droplist)      # Drop subjects with too few trials
 
-# Get policy models and associated info
-model_ve, model_rve, model_beta, model_proj = get_policy_models(subj, grp)
+# Get linear models of subject timing data
+grp = get_subject_policy_changes_over_time(subj, grp)
 
-# Check association between AES and stay-baseline
-#get_noham_AES_stay_rho(subj, grp)
+# Perform group level analyses
+subj, grp, summary = analyze_subjects(subj, grp)    # Includes stats for response conditions
+grp = foraging_quality_controls(grp)                # Outlier detection on foraging stats
+
+# Perform QCs which depend on group analyses
+grp = pca_quality_controls(grp)                     # Outlier detection on PCs
+
+# Drop PC outliers
+droplist = np.where(~(grp['all_pca_qc'] & grp['foraging_qc']))[0]
+subj, grp = drop_subjects(subj, grp, droplist)
+
+# Recompute PCs
+subj, grp, summary = analyze_subjects(subj, grp)
 
 
 #---------------------------------  Plots -----------------------------------#
 if make_plots:
+
+    # Figure 1    
+    plot_conditions()                   # Condition instantaneous rates and accumulated reward    
     
-    # Subject durations by condition
-    p.plot_durations(grp)
+    # Figure 2
+    plot_durations(grp)                 # Subject durations by condition
+    plot_exits(grp)                     # Subject durations by condition
+    plot_dur_diffs(grp)                 # Subject durations for best minus those for mid, and mid-worst
+    plot_latencies(grp)                 # Subject latencies by condition
+    plot_reward_dist(grp)               # Distribution of subjects' rewards
+
+    # Figure 3
+    plot_dur_pca(grp)                # PCA of policy models
+    plot_exit_pca(grp)
+    plot_both_ve(grp)
+    plot_dur_pc_scores(grp)             # 
+    plot_exit_pc_scores(grp)
     
-    # How much do subjects differentiate?
-    p.plot_differentiation(grp)
+
+    #plot_policy_models(subj, grp)       # Reduced policy model timing & reward VEs 
+
+    # Figure 4
+    plot_exit_threshold_pvalues(subj, grp)
     
-    # Reduced policy model comparison of timing and reward variance explained 
-    p.plot_policy_models(model_ve, model_rve)
-    
+    # Figure 5
+    plot_stay_lms(subj)
+
+    # Figure 6
+    # Predicting policies from other subject data
+    fit_policy_prediction_lms(grp)
+
+    # Figure S1
+    # Changes over the course of the experiment
+
+
     # Policy space: reward contours in duration vs differntiation
-    p.plot_policy_sweep_heatmap()
+    plot_policy_sweep_heatmap()
     
     # Subjects' policies in policy space
-    p.plot_policy_space_subjs(grp)
+    plot_policy_space_subjs(grp.iloc[0:234,:])
+
+    # Policy space: reward contours in duration vs differntiation
+    plot_policy_sweep_heatmap()
     
+    # Subjects' policies in policy space
+    plot_policy_space_subjs(grp.iloc[234:,:])
+
     # Distributions of subjects stay-duration slopes
-    p.plot_policy_slope_CDFs(grp)
+    plot_policy_slope_CDFs(grp)
     
     # Initial and final distributions of policy-quality
-    p.plot_policy_rew_CDFs(grp)
+    plot_policy_rew_CDFs(grp)
     
     # Impacts of policy changes on reward
-    p.plot_policy_rew_deltas(grp)
+    plot_policy_rew_deltas(grp)
 
 
 
+    # Extra plots
+
+    #plot_durations(grp.iloc[0:234,:])
+    #plot_durations(grp.iloc[234:,:])

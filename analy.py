@@ -1,64 +1,191 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-"""
-Created on Tue Mar 28 17:59:27 2023
-
-@author: dan
-"""
 import numpy  as np
 import pandas as pd
 import scipy  as sp
 
 import statsmodels.api as sm
+import seaborn as sns
+from statsmodels.formula.api import ols
+from itertools import product
+
+def basic_quality_controls(grp):
+    # Check on reasonable RTs in RT task
+    grp['rtt_qc'] = grp['rtt_rt_med'] < 1500
+
+    # Subjects with missing data (usually age or from ToL perfect score)
+    grp['incomplete'] = grp.isna().sum(axis=1) > 0
+
+    # Any QC failures
+    cols = [c + '_qc' for c in ['rtt', 'aes', 'phq']]
+    grp['all_exog_qc'] = grp[cols].all(axis=1)
+
+    return grp
+
+def foraging_quality_controls(grp):
+
+    # True means pass pass
+    grp['lat_qc'] = np.all(grp[ ['hl_lat_avg', 'll_lat_avg', 'hh_lat_avg', 'lh_lat_avg'] ] < 2000, axis=1)
+    grp['dur_qc'] = (grp['dur_med'] > 2000) | (grp['dur_med'] < 10000)
+    grp['rew_qc'] = grp['rew_tot'] > 10
+
+    # Foraging QC
+    cols = [c + '_qc' for c in ['lat', 'dur', 'rew']]
+    grp['foraging_qc'] = grp[cols].all(axis=1)
+
+    return grp
+
+
+def pca_quality_controls(grp):
+    '''Quality control checks for subject PCA scores data'''
+    fails = np.zeros(len(grp)).astype(bool)
+    for var, time in product(['dur', 'exit', 'hgt'], ['avg', 't0', 't1']):
+        for pc in ['pc1', 'pc2']:
+            fld = var + '_' + time + '_'+ pc + '_score'
+            grp[fld+'_qc'] = np.abs(robust_zscore(grp[fld])) < 3.5
+
+            fails += ~grp[fld+'_qc']
+
+    grp['all_pca_qc'] = ~fails
+    return grp
+
+
+def manual_exclusions():
+    # Manual exclusions:
+    # Subjects  5, 13, 35 fail attention check & 35 has bad foraging data
+    # Subjects 18, 27, 41 appear to have bad rew curves
+    # Subjects 44, 48     are big duration and latency outliers, respectively
+    # droplist = [6, 5,13,35, 18,27,41, 44,48]
+    #droplist = [45, 89, 99]
+    droplist = []
+    return droplist
+
+def get_foraging_response_stats(subj, grp):
+    '''Get summary statistics of subject behaviour'''
+    # Loop over subjects, filling in summary statistics
+    for i, subj in enumerate(subj):
+        grp.at[i,'lat_avg'] = np.mean(subj.time_to_response)
+        grp.at[i,'lat_med'] = np.median(subj.time_to_response)
+        grp.at[i,'lat_std'] = np.std(subj.time_to_response)
+
+        grp.at[i,'dur_avg'] = np.mean(subj.space_down_time) 
+        grp.at[i,'dur_med'] = np.median(subj.space_down_time)
+        grp.at[i,'dur_std'] = np.std(subj.space_down_time)
+
+        grp.at[i,'hgt_avg'] = np.mean(subj.height)
+        grp.at[i,'hgt_med'] = np.median(subj.height)
+        grp.at[i,'hgt_std'] = np.std(subj.height)
+
+        grp.at[i,'ntrials'] = subj.trial_number.iloc[-1]
+        grp.at[i,'rew_tot'] = subj.total_milk.iloc[-1]
+    return grp
+
 
 def analyze_subjects(subj, grp):
-    
-    # Number of subjects
-    ns = len(subj)
-    
-    # 
-    grp['rew_tot'] = [subj[i].total_milk.iloc[-1]         for i in range(0,ns)]
-    
-    grp['lat_avg'] = [np.mean(subj[i].time_to_response)   for i in range(0,ns)]
-    grp['dur_avg'] = [np.mean(subj[i].space_down_time)    for i in range(0,ns)]
-    grp['hgt_avg'] = [np.mean(subj[i].height)             for i in range(0,ns)]
-    
-    grp['lat_med'] = [np.median(subj[i].time_to_response) for i in range(0,ns)]
-    grp['dur_med'] = [np.median(subj[i].space_down_time)  for i in range(0,ns)]
-    grp['hgt_med'] = [np.median(subj[i].height)           for i in range(0,ns)]
-    
-    grp['lat_std'] = [np.std(subj[i].time_to_response)    for i in range(0,ns)]
-    grp['dur_std'] = [np.std(subj[i].space_down_time)     for i in range(0,ns)]
-    grp['hgt_std'] = [np.std(subj[i].height)              for i in range(0,ns)]
+    # Dictionary to contain summary data 1-level above grp
+    summary = {}
 
-    grp['hgt_std'] = [np.std(subj[i].height)              for i in range(0,ns)]
+    # Get exit thresholds and exit threshold variations
+    for time_point in ['avg', 't0', 't1', 'h0', 'h1']:
+        subj, grp    = get_subject_exit_thresholds(subj, grp, time = time_point, sfx='')
+        grp, summary = get_subject_exit_threshold_variation(grp, summary, time=time_point)
 
-    grp['dur_skw'] = [sp.stats.skew(subj[s].space_down_time) for s in range(0,ns)]
-    grp['dur_skw_rob'] = [sm.stats.stattools.robust_skewness(subj[s].space_down_time)[2] for s in range(0,ns)]
-    grp['dur_skw_exc'] = grp.dur_skw - grp.dur_skw_rob
-    grp['dur_skw_rank'] = get_rank(grp.dur_skw)
-    
-    grp['ntrials'] = [subj[i].trial_number.iloc[-1]       for i in range(0,ns)]
-    
-    # Get some subject rank orders
-    grp['rew_rank'] = get_rank(grp.rew_tot)
-    grp['aes_rank'] = get_rank(grp.aes)
-    grp['dur_rank'] = get_rank(grp.dur_avg)
-    grp['lat_rank'] = get_rank(grp.lat_avg)
-    
-    # Defrag to avoid annoying warnings
-    frame = grp.copy()
-    del grp
-    grp = frame.copy()
-    del frame
-    
-    # Get linear models of subject timing data
-    grp = get_policy_stats(subj, grp)
+    # Get duration, exit, height PCAs
+    for time_point, var in product(['avg', 't0', 't1', 'h0', 'h1'], ['dur', 'exit', 'hgt']):
+        grp, summary = get_stay_pca(grp, summary, time = time_point, var = var)
 
-    # Get policies
+    # Get optimal policy and subject coordinates
+    policy_opt = get_policy_opt()
+    subj_base, subj_delta, subj_mod = policy_space(policy_opt, grp)
+    grp['dur_scale'] = subj_mod
+    grp['dur_scale_resid'] = get_resid(subj_mod, grp.dur_baseline, disp = False)
+
+    # Set some duration parameters
+   # grp = get_subject_dur_deviations(grp)
+
+    # Project onto reduced models
+    _ , dur_models = get_reduced_model_rve(grp, type='dur')
+    grp[['hl_dur_avg_m0', 'll_dur_avg_m0','hh_dur_avg_m0', 'lh_dur_avg_m0']] = dur_models[0]
+    subj, grp = get_subject_exit_thresholds(subj, grp, sfx='_m0')
+
+    # Exit deviations using reduced model
+    #grp, summary = get_subject_exit_threshold_variation(grp, summary, time='avg', sfx='_m0')
+
+    # Fit linear models to stay durations and exit thresholds
+    #grp = fit_stay_lms_full(subj, grp, type='dur')
+    #grp = fit_stay_lms_full(subj, grp, type='exit')
+
+    # A few misc variables
+    #grp['baseline_composite'] = (robust_zscore(grp['dur_avg_PC1_scores']) + robust_zscore(grp['dur_b_const']))/2
+    #grp['hl_composite'] = (robust_zscore(grp['dur_avg_PC2_scores']) + robust_zscore(grp['dur_b_hl']) + robust_zscore(grp['hl_dur_dev']))/3
+
+    return subj, grp, summary
+
+
+def get_subject_policy_changes_over_time(subj, grp, robust=True):
+    '''Computes linear models of subject stay durations over time'''
+    
+    ns    = len(subj)                       # Number of subjects
+    conds = ['ac', 'hl', 'll', 'hh', 'lh']  # All conditions case is "ac"    
+    endog = ['lat', 'dur', 'hgt']           # Y-variables: latencies and durations
+    
+    # Column names of y-variables in subject dataframes
+    names = {'lat':'time_to_response', 'dur':'space_down_time', 'hgt':'height'}
+    
+    # Statistics to compute: intercepts, slopes, beginning, end values, averages, medians
+    stats = ['b0', 'b1', 't0', 't1', 'avg', 'med']
+
+    # Initialize fields, columns for stats for each y-variable
+    for cond in conds:
+        for yvar in endog:
+            for stat in stats:
+                grp[cond + '_' + yvar + '_' + stat] = np.NaN
+    
+    # For each subject, each condition, and each y-variable, mask out data and compute models
+    for s in range(0, ns):
+        for cond in conds:
+            msk = subj[s][cond]                 # Mask for trials in this condtiion
+            last_trial = grp.ntrials[s]         # Last trial number, for computing final policy
+
+            # Compute linear models
+            for yvar in endog:
+                prefix = cond + '_' + yvar + '_' # Path in tree of model name strings
+                if robust:
+                    lm = sp.stats.siegelslopes(subj[s][names[yvar]][msk], subj[s].trial_number[msk])                
+                    grp.at[s, prefix + 'b0'] = lm.intercept
+                    grp.at[s, prefix + 'b1'] = lm.slope
+                    grp.at[s, prefix + 't0'] = lm.intercept + lm.slope*1
+                    grp.at[s, prefix + 't1'] = lm.intercept + lm.slope*last_trial
+                else:
+                    res = run_lm(subj[s][names[yvar]][msk], subj[s].trial_number[msk], disp = False)
+                    grp.at[s, prefix + 'b0'] = res.params.const
+                    grp.at[s, prefix + 'b1'] = res.params.trial_number,
+                    grp.at[s, prefix + 't0'] = res.params.const + res.params.trial_number*1,
+                    grp.at[s, prefix + 't1'] = res.params.const + res.params.trial_number*last_trial
+
+                # Split halves
+                shidx = int(len(subj[s][names[yvar]][msk])/2) # Split-half point
+                h0 = subj[s][names[yvar]][msk][0:shidx]
+                h1 = subj[s][names[yvar]][msk][shidx:]
+
+                if len(h0) == 0 or len(h1) == 0:
+                    print('Error in split halves: ' + str(s) + ' ' + cond + ' ' + prefix + str(shidx) + ' ' +str(int(last_trial)))
+                else:
+                    grp.at[s, prefix + 'h0'] = np.median(h0)
+                    grp.at[s, prefix + 'h1'] = np.median(h1)
+
+                # Save the averages and medians
+                grp.at[s, prefix + 'avg'] = np.mean(  subj[s][names[yvar]][msk])
+                grp.at[s, prefix + 'std'] = np.std(   subj[s][names[yvar]][msk])
+                grp.at[s, prefix + 'med'] = np.median(subj[s][names[yvar]][msk])
+                
+            # Avoid fragmentation (and annoying warnings)
+            if s == 0: grp = grp.copy()
+    
+    # Initialize reward associated with these policies
     grp['rew_t0'] = np.NaN
     grp['rew_t1'] = np.NaN
     grp['rew_dt'] = np.NaN
+
+    # Get reward for each policy
     for s in range(0, ns):
         lats0 = np.array(grp[['hl_lat_t0', 'll_lat_t0', 'hl_lat_t0', 'll_lat_t0']].iloc[s])
         durs0 = np.array(grp[['hl_dur_t0', 'll_dur_t0', 'hl_dur_t0', 'll_dur_t0']].iloc[s])
@@ -71,20 +198,11 @@ def analyze_subjects(subj, grp):
         grp.at[s, 'rew_dt'] = grp.at[s, 'rew_t1'] - grp.at[s, 'rew_t0']
     
         grp.at[s, 'rew_pred'] = get_policy_rew(grp.dur_avg[s]*np.ones(4), grp.lat_avg[s]*np.ones(4))
-    
-    # Get residualized trialwise variabilies
-    
-    # Prediction using residualized variables
-    grp['lat_std_res'] = np.NaN
-    grp['lat_std_res'] = get_resid(grp.lat_std, grp.lat_avg, disp = False)
-    
-    grp['dur_std_res'] = np.NaN
-    grp['dur_std_res'] = get_resid(grp.dur_std, grp.dur_avg, disp = False)
-    
-    grp['hgt_std_res'] = np.NaN
-    grp['hgt_std_res'] = get_resid(grp.hgt_std, grp.hgt_avg, disp = False)
 
     return grp
+
+
+
 
 
 def get_rank(col):
@@ -98,157 +216,168 @@ def get_rank(col):
     
     return subj
 
+def get_policy_exit_thresholds(policy = None):
+    if policy is None:
+        policy = get_policy_opt()
 
-def get_policy_stats(subj, grp):
-    
-    # Number of subjects
-    ns = len(subj)
-    
-    # Conditions from best to worst case, as usual, plus "all conditions"
-    conds = ['ac', 'hl', 'll', 'hh', 'lh']
-    
-    # Values: model latencies and durations
-    vals = ['lat', 'dur', 'hgt']
-    vdic = {'lat':'time_to_response', 'dur':'space_down_time', 'hgt':'height'}
-    
-    # Model results: intercepts, slopes, beginning, end values
-    mres = ['b0', 'b1', 't0', 't1', 'avg', 'med']
+    conds = ((0.02, 0.0002), (0.01, 0.0002), (0.02, 0.0004), (0.01, 0.0004))
+    names = ['hl', 'll', 'hh', 'lh']
 
-    # Columns for linear model betas, initial and final values, by condition
-    # Initialize fields
-    for cond in conds:
-        for val in vals:
-            for res in mres:
-                grp[cond + '_' + val + '_' + res] = np.NaN
+    # Policy input might be vector or matrix
+    if len(policy.shape) == 1:
+        policy = policy.reshape(1,4)
     
-    # Loop over subjects
-    for s in range(0, ns):
-        
-        # Loop over conditions
-        for cond in conds:
-            # Trial type
-            msk = subj[s][cond]
+    if isinstance(policy, pd.DataFrame):
+        policy = policy.values
+
+    # These should all be the same number, if using optimal policy
+    out = np.zeros_like(policy)
+    for i, (name, cond) in enumerate(zip(names,conds)):
+        out[:,i] = cond[0] * np.exp(-cond[1]*policy[:,i])
+
+    return out.squeeze()
+
+
+def get_policy_from_exit_thresholds(thresholds):
+    conds = ((0.02, 0.0002), (0.01, 0.0002), (0.02, 0.0004), (0.01, 0.0004))
+    names = ['hl', 'll', 'hh', 'lh']
+
+    # These should all be the same number, if using optimal policy
+    policy = np.zeros_like(thresholds)
+    for i, (name, cond) in enumerate(zip(names,conds)):
+        policy[:,i] = np.log(thresholds[:,i] / cond[0]) / -cond[1]
+
+    return policy.squeeze()
+
+
+def get_subject_exit_thresholds(subj, grp, time='avg', sfx='', ftest=False):
+
+    # Patch params (base, decay) for dm/dt = base * exp(-decay * time)
+    conds = ((0.02, 0.0002), (0.01, 0.0002), (0.02, 0.0004), (0.01, 0.0004))
+    names = ['hl', 'll', 'hh', 'lh']
+
+    for name, cond in zip(names,conds):
+        grp[name+'_exit_'+time+sfx] = cond[0] * np.exp(-cond[1]* grp[name+'_dur_'+time+sfx])
+        #grp[name+'_exit_ub' ] = cond[0] * np.exp(-cond[1]*(grp[name+'_dur_avg'+sfx] + 1*grp[name+'_dur_std']))
+        #grp[name+'_exit_lb' ] = cond[0] * np.exp(-cond[1]*(grp[name+'_dur_avg'+sfx] - 1*grp[name+'_dur_std']))
+
+    for i, s in enumerate(subj):
+        subj[i]['exit'] = s['S']*np.exp(-s['decay_rate']*s['space_down_time'])
+
+    if ftest:
+        grp['exit_ftest_pval'] = 1
+
+        for i, s in enumerate(subj):
+
+            subj[i].loc[subj[i]['hl'], 'type'] = 2
+            subj[i].loc[subj[i]['ll'], 'type'] = 1
+            subj[i].loc[subj[i]['hh'], 'type'] = -1
+            subj[i].loc[subj[i]['lh'], 'type'] = -2
+
+            model = ols('exit ~ type', data = subj[i]).fit()
+            anova_table = sm.stats.anova_lm(model, typ=2)
+            #print(anova_table['PR(>F)'][0])
             
-            # Get last trial for computing final policies
-            last_trial = grp.ntrials[s]
-            
-            # Compute models on both latency and duration
-            for val in vals:
-                
-                # Path in tree of model name strings
-                prefix  = cond + '_' + val + '_'
-                
-                # Robust regression of stay-durations on trial numbers
-                lm = sp.stats.siegelslopes(subj[s][vdic[val]][msk], subj[s].trial_number[msk])
-                
-                # Save the linear model
-                grp.at[s, prefix + 'b0'] = lm.intercept
-                grp.at[s, prefix + 'b1'] = lm.slope
-                grp.at[s, prefix + 't0'] = lm.intercept + lm.slope*1
-                grp.at[s, prefix + 't1'] = lm.intercept + lm.slope*last_trial
+            grp['exit_ftest_pval'][i] = anova_table['PR(>F)'][0]
+
+    # Exit means, sqrt(means), log(means)
+    exits = np.array(grp[ ['hl_exit_'+time, 'll_exit_'+time, 'hh_exit_'+time, 'lh_exit_'+time] ])
+    grp['exit_means_'+time] = np.mean(exits,axis=1)
+    grp['sqrt_exit_means_'+time] = np.sqrt(grp['exit_means_'+time])
+    grp['log_exit_means_'+time] = np.log(grp['exit_means_'+time])
+
+    return subj, grp
+
+def get_subject_exit_threshold_variation(grp, summary, time='avg', sfx=''):
+    cols = ['hl_exit', 'll_exit', 'hh_exit', 'lh_exit']
+    cols = ['_'.join([c,time])+sfx for c in cols] 
     
-                # Save the averages and medians
-                grp.at[s, prefix + 'avg'] = np.mean(  subj[s][vdic[val]][msk])
-                grp.at[s, prefix + 'std'] = np.std(   subj[s][vdic[val]][msk])
-                grp.at[s, prefix + 'med'] = np.median(subj[s][vdic[val]][msk])
-                
-            # Avoid fragmentation (and annoying warnings)
-            if s == 0: grp = grp.copy()
-    
+    cols = ['hl_exit_'+time+sfx, 'll_exit_'+time+sfx, 'hh_exit_'+time+sfx, 'lh_exit_'+time+sfx]
+    exit_avg = grp[cols].values
+    exit_avg_std = np.mean(np.std(exit_avg,axis=0))
+
+    devs  = (exit_avg - np.mean(exit_avg,axis=1).reshape(-1,1))/exit_avg_std
+    diffs = (np.max(devs, axis=1) - np.min(devs,axis=1))
+
+    cols = ['_'.join([c,'dev']) for c in cols] 
+
+    grp[cols] = devs
+    grp['exit_delta_'+time+sfx] = diffs
+
+
+    summary['exit_dev_means_'+time+sfx] = np.mean(devs, axis=0)
+    summary['exit_dev_sems_'+time+sfx]  = sp.stats.sem(devs, axis=0)
+    return grp, summary
+
+
+def get_subject_dur_deviations(grp):
+    '''Computes deviation in stay durations from those predicted by subject average threshold'''
+    # Get subject average exit thresholds
+    cols = ['hl_exit_avg', 'll_exit_avg', 'hh_exit_avg', 'lh_exit_avg']
+    exit_avg = np.mean(grp[cols].values,axis=1).reshape(-1,1)
+
+    # Convert these to a policy
+    policy_avg = get_policy_from_exit_thresholds(np.tile(exit_avg,[1,4]))
+
+    # Compute deviations from policy
+    devs = (grp[['hl_dur_avg', 'll_dur_avg', 'hh_dur_avg', 'lh_dur_avg']].values - policy_avg)
+    diffs = (np.max(devs, axis=1) - np.min(devs,axis=1))
+
+    grp[['hl_dur_dev', 'll_dur_dev','hh_dur_dev', 'lh_dur_dev']] = devs
+    grp['dur_delta'] = diffs
+
     return grp
+
 
 
 def get_policies(grp):
     flds = ['hl_dur_avg', 'll_dur_avg', 'hh_dur_avg', 'lh_dur_avg']
-    avg  = grp[flds]    
+    avg  = grp[flds]
     return avg
 
 
-def get_policy_models(subj, grp):
-    
-    # Average stay durations
-    durs = np.array(grp[ ['hl_dur_avg', 'll_dur_avg', 'hh_dur_avg', 'lh_dur_avg'] ])
+def get_reduced_model_rve(grp, type='dur'):
+    # Latencies
     lats = np.array(grp[ ['hl_lat_avg', 'll_lat_avg', 'hh_lat_avg', 'lh_lat_avg'] ])
 
-    # Get the optimal policy
-    policy_opt  = get_policy_opt()
-    
-    # Define constant and mean-zero policy components
-    policy_cnst = np.ones(4)/np.sqrt(4)
-    
-    policy_mzro = policy_opt - np.mean(policy_opt)
-    policy_mzro = policy_mzro/np.linalg.norm(policy_mzro)
-    
-    # PCA of policy variables
-    evals, evecs = np.linalg.eig(np.cov(durs.T))
-    
-    # fig = figure()
-    # plot(vals/sum(evals), '-o')
-    # ylim([0,1])
-    # grid('on')
-    # ylabel('Fraction Variance Explained')
-    # xlabel('Principal Component')
-    # title('PCA Variance Explained')
-    # fig.savefig('./response-var-explained.png')
-    
-    # Subspace 0, full model (correctness check & reward VE ceiling)
-    S0 = evecs
+    if type == 'dur':
+        # Average stay durations
+        vals = np.array(grp[ ['hl_dur_avg', 'll_dur_avg', 'hh_dur_avg', 'lh_dur_avg'] ])
 
-    # Subspace 1, top 2-eigenvector space
-    S1 = np.vstack([evecs[:,0], evecs[:,1]]).T
-    
-    # Subspace 2, policy-decomposition
-    S2 = np.vstack([policy_cnst, policy_mzro]).T
-    
-    # Subspace 3, pure baseline model
-    S3 = np.array([S2[:,0]]).T
-    
-    # Determine angles between subspaces
-    angles_rad = sp.linalg.subspace_angles(S1, S2)
-    angles_deg = np.rad2deg(angles_rad)
-    
-    # Convert to rho-values
-    rho_S1_S2 = np.cos(angles_rad)
-    
+    elif type == 'exit':
+        # Exit thresholds
+        vals = np.array(grp[ ['hl_exit_avg', 'll_exit_avg', 'hh_exit_avg', 'lh_exit_avg'] ])
+
+    # PCA of policy variables
+    evals, evecs = np.linalg.eig(np.cov(vals.T))
+        
     # Iterable of models
-    model = [S0, S1, S2, S3]
+    models = [evecs[:,0:1], evecs[:,0:2], evecs[:,0:3], evecs[:,0:4]]
     
     # Init model stats lists
-    model_ve, model_rve, model_beta, model_proj = [], [], [], []
+    model_rve, model_beta, model_proj = [], [], []
 
     # Get statistics
-    for m in range(0,4):
-    
-        # Get policy variance explained by models
-        model_ve.append( get_policy_ve(model[m], durs) )
-    
+    for m, model in enumerate(models):
+
         # Get betas
-        model_beta.append( np.matmul(durs, model[m]) )
+        model_beta.append( np.matmul(vals, model) )
         
         # Subjects' policy models
-        model_proj.append( np.matmul(model_beta[m], model[m].T) )
+        model_proj.append( np.matmul(model_beta[m], model.T) )
         
+        # Convert to policy if using exits
+        if type == 'exit':
+            model_proj[m] = get_policy_from_exit_thresholds(model_proj[m])
+
         # Reward variance explained
         model_rve.append( get_policy_rve(model_proj[m], lats, grp.rew_tot) )
     
-    # Print angles and rhos, variances explained, etc
-    print('Subspace angles [deg]:')
-    print(angles_deg)
+    return model_rve, model_proj
     
-    print('\nSubspace angles [rad]:')
-    print(angles_rad)
-    
-    print('\nSubspace rho-values:')
-    print(rho_S1_S2)
-    
-    print('\nPolicy variance explained:')
-    print(model_ve)
-    
-    print('\nReward variance explained:')
-    print(model_rve)
-    
-    return model_ve, model_rve, model_beta, model_proj
-    
+
+
+
     
 def get_policy_ve(subspace, data):
     
@@ -279,7 +408,7 @@ def get_policy_rve(proj, lats, rew):
         rew_pred[s] = get_policy_rew(proj[s], lats[s,:])
     
     # Unexplained reward
-    res = rew- rew_pred
+    res = rew - rew_pred
     
     # Sums of squares
     sse = np.sum((res - np.mean(res, 0))**2)
@@ -492,27 +621,23 @@ def run_variance_lms(grp):
     
 # Wrapper for residualizing variables
 def get_resid(y, X, disp = True):
-    
-    # 
     X = sm.add_constant(X)
-        
     mod = sm.OLS(y, X)
     res = mod.fit()
-    
     if disp:
         print(res.summary())
-    
     return res.resid
 
 
 # Wrapper for the scipy linear model call
-def run_lm(y, X, disp = True, zscore = False, robust = False):
-    
+def run_lm(y, X, disp = True, zscore = False, robust = False, add_const = True):
+
     # Z-score data
     if zscore:
         X = sp.stats.zscore(X)
         y = sp.stats.zscore(y)
-    else:
+    
+    if add_const:
         X = sm.add_constant(X)
     
     # Robust or standard OLS
@@ -574,7 +699,7 @@ def get_noham_AES_stay_rho_1(subj, grp):
 
     # Correlate AES rank with beta 0
     res = sp.stats.spearmanr(grp.aes, b0)
-        
+
     print('\nSpearman rho (AES, Stay-Baseline):')
     print(res.statistic)
     
@@ -729,9 +854,256 @@ def get_noham_AES_stay_rho_4(subj, grp):
 
 
 
-def robust_zscore(x):
+def fit_stay_lms_marginal(subj):
+    
+    # Number of subjects
+    ns = len(subj)
+    
+    # Beta lists (to frame later)
+    results  = pd.DataFrame(np.zeros([ns,8]), columns = ['b_const','b_h-','b_-h', 'p_const','p_h-','p_-h', 'r2', 'fp'])
+
+    # Loop through subjects getting their betas
+    for s in range(0, ns):
+        
+        # Get subject duration data
+        X = subj[s][['hl','ll','hh','lh']]
+    
+        # Boolean predictor columns for init and decay
+        X2 = pd.DataFrame( [X['hh'] + X['hl'], X['hh'] + X['lh']], index=['h-', '-h']).T
+        X2 = X2.applymap(lambda x: 1 if x == True else 0)
+    
+        # Add intercept to model
+        X2 = sm.add_constant(X2)
+    
+        # Generate and fit
+        mod = sm.OLS(subj[s].space_down_time, X2)
+        res = mod.fit()
+
+        # Concatenate betas into a frame
+        results.iloc[s,0:3] = res.params.values
+        results.iloc[s,3:6] = res.pvalues.values
+        results.iloc[s,6]   = res.rsquared
+        results.iloc[s,7]   = res.f_pvalue
+
+    return results
+
+
+def fit_stay_lms_full(subj, grp, type='dur'):
+    
+    # Number of subjects
+    ns = len(subj)
+    
+    # Beta lists (to frame later)
+    cols = ['b_const','b_h-','b_-h','b_hl', 'p_const','p_h-','p_-h','p_hl', 'r2', 'fp']
+    cols = [type + '_' + col for col in cols]
+    results  = pd.DataFrame(np.zeros([ns,10]), columns = cols)
+
+    # Loop through subjects getting their betas
+    for s in range(0, ns):
+        
+        # Get subject duration data
+        X = subj[s][['hl','ll','hh','lh']]
+    
+        # Boolean predictor columns for init and decay
+        X2 = pd.DataFrame( [X['hh'] + X['hl'], X['hh'] + X['lh']], index=['h-', '-h']).T
+        X2 = X2.applymap(lambda x: 1 if x == True else 0)
+        #X3 = X['hh'].apply(lambda x: 1 if x else 0) + X['ll'].apply(lambda x: -1 if x else 0)
+        X3 = X['hl'].apply(lambda x: 1 if x else 0)
+        X3.name = 'hl'
+        X2 = X2.join(X3)
+    
+        # Add intercept to model
+        X2 = sm.add_constant(X2)
+    
+        # Generate and fit
+        if type == 'dur':
+            y = subj[s].space_down_time
+        elif type == 'exit':
+            y = np.sqrt(subj[s].exit)
+
+        mod = sm.OLS(y, X2)
+        res = mod.fit()
+
+        # Concatenate betas into a frame
+        results.iloc[s,0:4] = res.params.values
+        results.iloc[s,4:8] = res.pvalues.values
+        results.iloc[s,8]   = res.rsquared
+        results.iloc[s,9]   = res.f_pvalue
+
+    grp = grp.join(results)
+
+    return grp
+
+
+
+def robust_zscore(x, weight = 0.5):
+    # Demand 1D input
+    if len(x.shape) > 1:
+        raise ValueError('Input must be a 1D array')
+    
+    # MAD can sometimes be very small, as w/ skewed data
+    if weight > 1.0 or weight < 0.0:
+        raise ValueError('Weight must be between 0 and 1')
+
+    # Compute z-score
     z = x - np.median(x)
     mad = np.median(np.abs(z))
+    scale = weight*mad*1.48 + (1.0-weight)*np.std(z)
+
+    # Warn if problems
+    if scale == 0:
+        print('Warning: Scale is zero in robust z-score.')
+        return np.zeros_like(x)
+
+    return z/scale
+
+def robust_zscore_cols(df, weight = 0.5):
+    for col in df.columns:
+        df[col] = robust_zscore(df[col], weight)
+    return df
+
+def find_outliers_vec(x, thresh = 5):
+    inds = np.where(np.abs(robust_zscore(x)) > thresh)[0].tolist()
+    return np.sort(np.unique(inds)).tolist()
+
+def find_outliers_df(df, thresh = 5):
+    inds = []
+    for col in df.columns:
+        inds += find_outliers_vec(df[col], thresh)
+    return np.sort(np.unique(inds)).tolist()
+
+def iterative_outlier_pruning_vec(x, thresh = 5):
+    if len(x.shape) > 1:
+        raise ValueError('Input must be a 1D array')
+    inds = find_outliers_vec(x, thresh)
+    while len(inds) > 0:
+        x = x.drop(inds, axis=0).reset_index(drop=True)
+        inds = find_outliers_vec(x, thresh)
+    return x
+
+def iterative_outlier_pruning_df(df, thresh = 5):
+    inds = find_outliers_df(df, thresh)
+    while len(inds) > 0:
+        df = df.drop(inds, axis=0).reset_index(drop=True)
+        inds = find_outliers_df(df, thresh)
+    return df
+
+
+
     
-    return z/mad
+def nanless(x):
+    return x[~np.isnan(x)]
+
+def get_complete_rows_only(df):
+    return df.dropna(axis=0, how='any')
+
+
+def PCA(df, pos_const = True):
+    vals = np.array(df)
+    evals, evecs = np.linalg.eig(np.cov(vals.T))
+
+    inds = np.flip(np.argsort(evals))
+    evals = evals[inds]
+    evecs = evecs[:,inds]
+
+    if pos_const:
+        evecs[:,0:1] = evecs[:,0:1] if evecs[0,0:1] > 0 else -evecs[:,0:1]
+
+        if evecs[0,1] < 0:
+            evecs[:,1] = -evecs[:,1]
+
+        if evecs[2,2] < 0:
+            evecs[:,2] = -evecs[:,2]
+
+        if evecs[3,2] < 0:
+            evecs[:,3] = -evecs[:,3]
+
+    scores = vals @ evecs
+    return evals, evecs, scores
+
+def get_stay_pca(grp, summary, time='avg', var='dur'):
+    print('Getting PCA for ' + var + ' at ' + time)
+    vals = np.array(grp[ ['hl_'+var+'_'+time, 'll_'+var+'_'+time, 'hh_'+var+'_'+time, 'lh_'+var+'_'+time] ])
+
+    # PCA itself, jackknife standard errors
+    evals, evecs, scores = PCA(vals, pos_const=True)
+    evals_jse = jse(vals, lambda x: PCA(x, pos_const=True)[1])
+
+    scale = {'dur':1/10000, 'exit':1000, 'hgt':1}
+
+    grp[var+'_'+time+'_pc1_score'] = (vals - np.mean(vals,axis=0))@ evecs[:,0]*scale[var]
+    grp[var+'_'+time+'_pc2_score'] = (vals - np.mean(vals,axis=0))@ evecs[:,1]*scale[var]
+
+    if var == 'dur':
+        grp['dur_baseline']   = (vals - np.mean(vals,axis=0))@ np.ones(4)/np.sqrt(4)*scale[var]
+
+    for i in range(0,4):
+        summary[var+'_'+time+'_pc'+str(i+1)] = evecs[:,i]
+        summary[var+'_'+time+'_pc'+str(i+1)+'_jse'] = evals_jse[:,i]
+
+    return grp, summary
+
+
+
+def run_age_lms(endog, age):
+    endog_cols = endog.columns.tolist()
+
+    # Linear regressions for exogenous variables by age
+    models = pd.DataFrame(np.zeros([4,len(endog_cols)]), ['standard_coef', 'standard_err', 'p-value', 'r-squared'], columns = endog_cols)
+    for col in endog_cols:
+        
+        # Get LMs for predicting each exogenous variable by age
+        res = run_lm(endog[col], age, zscore = True, robust = False, add_const = True, disp=True)
+
+        # Collect results (we'll plot them below)
+        models.loc['standard_coef',col] = res.params[1]
+        models.loc['standard_err', col] = res.bse[1]
+        models.loc['p-value'      ,col] = res.pvalues[1]
+        models.loc['r-squared'    ,col] = res.rsquared
+
+        # Residualized
+        endog[col] = get_resid(endog[col], age, disp = False)
+
+    return endog, models
+
+def run_lms(endog, exog):
+    models = {}
+    cnames = exog.columns.tolist()
+    for col in endog.columns.tolist():
+        X = exog.copy()
+        models[col] = pd.DataFrame(np.zeros([3,len(cnames)]), ['standard_coef', 'standard_err', 'p-value',], columns = cnames)
+
+        # Drop predictor column
+        if col in X.columns:
+            X = X.drop(col, axis=1)
+
+        # Linear model
+        res = run_lm(endog[col], X, zscore = True, robust = False, add_const = True, disp=True)
+
+        # Collect results (we'll plot them below)
+        models[col].loc['standard_coef'] = res.params[1:]
+        models[col].loc['standard_err' ] = res.bse[1:]
+        models[col].loc['p-value'      ] = res.pvalues[1:]
     
+    return models
+
+
+def enforce_float_cols(df):
+    for col in df:
+        df[col] = df[col].astype(float)
+    return df
+
+
+def jse(data, fn):
+    nreps = len(data)
+    fval  = fn(data)
+    evals = np.zeros([nreps, *fval.shape])
+    
+    inds = np.arange(nreps)
+    for i in range(0, nreps):
+        sub = inds[inds !=i ]
+        evals[i] = fn( data[sub] )
+    
+    se = np.sqrt( (nreps - 1)/nreps * np.sum( (evals - fval)**2 ,axis=0) )
+    
+    return se
