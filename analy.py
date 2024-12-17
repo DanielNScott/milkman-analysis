@@ -1018,7 +1018,7 @@ def PCA(df, pos_const = True):
         if evecs[3,2] < 0:
             evecs[:,3] = -evecs[:,3]
 
-    scores = vals @ evecs
+    scores = (vals - np.mean(vals,axis=0)) @ evecs
     return evals, evecs, scores
 
 def get_stay_pca(grp, summary, time='avg', var='dur'):
