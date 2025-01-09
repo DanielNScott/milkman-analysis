@@ -3,60 +3,10 @@ import pandas as pd
 import scipy  as sp
 
 import statsmodels.api as sm
-import seaborn as sns
 from statsmodels.formula.api import ols
 from itertools import product
 
-def basic_quality_controls(grp):
-    # Check on reasonable RTs in RT task
-    grp['rtt_qc'] = grp['rtt_rt_med'] < 1500
-
-    # Subjects with missing data (usually age or from ToL perfect score)
-    grp['incomplete'] = grp.isna().sum(axis=1) > 0
-
-    # Any QC failures
-    cols = [c + '_qc' for c in ['rtt', 'aes', 'phq']]
-    grp['all_exog_qc'] = grp[cols].all(axis=1)
-
-    return grp
-
-def foraging_quality_controls(grp):
-
-    # True means pass pass
-    grp['lat_qc'] = np.all(grp[ ['hl_lat_avg', 'll_lat_avg', 'hh_lat_avg', 'lh_lat_avg'] ] < 2000, axis=1)
-    grp['dur_qc'] = (grp['dur_med'] > 2000) | (grp['dur_med'] < 10000)
-    grp['rew_qc'] = grp['rew_tot'] > 10
-
-    # Foraging QC
-    cols = [c + '_qc' for c in ['lat', 'dur', 'rew']]
-    grp['foraging_qc'] = grp[cols].all(axis=1)
-
-    return grp
-
-
-def pca_quality_controls(grp):
-    '''Quality control checks for subject PCA scores data'''
-    fails = np.zeros(len(grp)).astype(bool)
-    for var, time in product(['dur', 'exit', 'hgt'], ['avg', 't0', 't1']):
-        for pc in ['pc1', 'pc2']:
-            fld = var + '_' + time + '_'+ pc + '_score'
-            grp[fld+'_qc'] = np.abs(robust_zscore(grp[fld])) < 3.5
-
-            fails += ~grp[fld+'_qc']
-
-    grp['all_pca_qc'] = ~fails
-    return grp
-
-
-def manual_exclusions():
-    # Manual exclusions:
-    # Subjects  5, 13, 35 fail attention check & 35 has bad foraging data
-    # Subjects 18, 27, 41 appear to have bad rew curves
-    # Subjects 44, 48     are big duration and latency outliers, respectively
-    # droplist = [6, 5,13,35, 18,27,41, 44,48]
-    #droplist = [45, 89, 99]
-    droplist = []
-    return droplist
+from utils import *
 
 def get_foraging_response_stats(subj, grp):
     '''Get summary statistics of subject behaviour'''
@@ -205,17 +155,6 @@ def get_subject_policy_changes_over_time(subj, grp, robust=True):
 
 
 
-def get_rank(col):
-    ns  = len(col)
-    idx = np.argsort(col)
-    
-    subj = np.arange(0, ns)
-    rank = np.arange(0, ns)
-    
-    subj[idx] = rank
-    
-    return subj
-
 def get_policy_exit_thresholds(policy = None):
     if policy is None:
         policy = get_policy_opt()
@@ -294,9 +233,8 @@ def get_subject_exit_threshold_variation(grp, summary, time='avg', sfx=''):
     
     cols = ['hl_exit_'+time+sfx, 'll_exit_'+time+sfx, 'hh_exit_'+time+sfx, 'lh_exit_'+time+sfx]
     exit_avg = grp[cols].values
-    exit_avg_std = np.mean(np.std(exit_avg,axis=0))
 
-    devs  = (exit_avg - np.mean(exit_avg,axis=1).reshape(-1,1))/exit_avg_std
+    devs  = (exit_avg - np.mean(exit_avg,axis=1).reshape(-1,1))
     diffs = (np.max(devs, axis=1) - np.min(devs,axis=1))
 
     cols = ['_'.join([c,'dev']) for c in cols] 
@@ -619,41 +557,7 @@ def run_variance_lms(grp):
     print(res3.summary())
     
     
-# Wrapper for residualizing variables
-def get_resid(y, X, disp = True):
-    X = sm.add_constant(X)
-    mod = sm.OLS(y, X)
-    res = mod.fit()
-    if disp:
-        print(res.summary())
-    return res.resid
 
-
-# Wrapper for the scipy linear model call
-def run_lm(y, X, disp = True, zscore = False, robust = False, add_const = True):
-
-    # Z-score data
-    if zscore:
-        X = sp.stats.zscore(X)
-        y = sp.stats.zscore(y)
-    
-    if add_const:
-        X = sm.add_constant(X)
-    
-    # Robust or standard OLS
-    if robust:
-        mod = sm.RLM(y, X, M = sm.robust.norms.HuberT())
-    else:
-        mod = sm.OLS(y, X)
-    
-    # Fit model
-    res = mod.fit()
-    
-    # Tell user
-    if disp:
-        print(res.summary())
-    
-    return res
 
 
 def get_noham_AES_stay_rho_1(subj, grp):
@@ -935,94 +839,12 @@ def fit_stay_lms_full(subj, grp, type='dur'):
     return grp
 
 
-
-def robust_zscore(x, weight = 0.5):
-    # Demand 1D input
-    if len(x.shape) > 1:
-        raise ValueError('Input must be a 1D array')
     
-    # MAD can sometimes be very small, as w/ skewed data
-    if weight > 1.0 or weight < 0.0:
-        raise ValueError('Weight must be between 0 and 1')
 
-    # Compute z-score
-    z = x - np.median(x)
-    mad = np.median(np.abs(z))
-    scale = weight*mad*1.48 + (1.0-weight)*np.std(z)
-
-    # Warn if problems
-    if scale == 0:
-        print('Warning: Scale is zero in robust z-score.')
-        return np.zeros_like(x)
-
-    return z/scale
-
-def robust_zscore_cols(df, weight = 0.5):
-    for col in df.columns:
-        df[col] = robust_zscore(df[col], weight)
-    return df
-
-def find_outliers_vec(x, thresh = 5):
-    inds = np.where(np.abs(robust_zscore(x)) > thresh)[0].tolist()
-    return np.sort(np.unique(inds)).tolist()
-
-def find_outliers_df(df, thresh = 5):
-    inds = []
-    for col in df.columns:
-        inds += find_outliers_vec(df[col], thresh)
-    return np.sort(np.unique(inds)).tolist()
-
-def iterative_outlier_pruning_vec(x, thresh = 5):
-    if len(x.shape) > 1:
-        raise ValueError('Input must be a 1D array')
-    inds = find_outliers_vec(x, thresh)
-    while len(inds) > 0:
-        x = x.drop(inds, axis=0).reset_index(drop=True)
-        inds = find_outliers_vec(x, thresh)
-    return x
-
-def iterative_outlier_pruning_df(df, thresh = 5):
-    inds = find_outliers_df(df, thresh)
-    while len(inds) > 0:
-        df = df.drop(inds, axis=0).reset_index(drop=True)
-        inds = find_outliers_df(df, thresh)
-    return df
-
-
-
+def get_stay_pca(grp, summary, time='avg', var='dur', verbose=False):
+    if verbose:
+        print('Getting PCA for ' + var + ' at ' + time)
     
-def nanless(x):
-    return x[~np.isnan(x)]
-
-def get_complete_rows_only(df):
-    return df.dropna(axis=0, how='any')
-
-
-def PCA(df, pos_const = True):
-    vals = np.array(df)
-    evals, evecs = np.linalg.eig(np.cov(vals.T))
-
-    inds = np.flip(np.argsort(evals))
-    evals = evals[inds]
-    evecs = evecs[:,inds]
-
-    if pos_const:
-        evecs[:,0:1] = evecs[:,0:1] if evecs[0,0:1] > 0 else -evecs[:,0:1]
-
-        if evecs[0,1] < 0:
-            evecs[:,1] = -evecs[:,1]
-
-        if evecs[2,2] < 0:
-            evecs[:,2] = -evecs[:,2]
-
-        if evecs[3,2] < 0:
-            evecs[:,3] = -evecs[:,3]
-
-    scores = (vals - np.mean(vals,axis=0)) @ evecs
-    return evals, evecs, scores
-
-def get_stay_pca(grp, summary, time='avg', var='dur'):
-    print('Getting PCA for ' + var + ' at ' + time)
     vals = np.array(grp[ ['hl_'+var+'_'+time, 'll_'+var+'_'+time, 'hh_'+var+'_'+time, 'lh_'+var+'_'+time] ])
 
     # PCA itself, jackknife standard errors
@@ -1087,23 +909,3 @@ def run_lms(endog, exog):
     
     return models
 
-
-def enforce_float_cols(df):
-    for col in df:
-        df[col] = df[col].astype(float)
-    return df
-
-
-def jse(data, fn):
-    nreps = len(data)
-    fval  = fn(data)
-    evals = np.zeros([nreps, *fval.shape])
-    
-    inds = np.arange(nreps)
-    for i in range(0, nreps):
-        sub = inds[inds !=i ]
-        evals[i] = fn( data[sub] )
-    
-    se = np.sqrt( (nreps - 1)/nreps * np.sum( (evals - fval)**2 ,axis=0) )
-    
-    return se

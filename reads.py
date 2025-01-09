@@ -1,7 +1,7 @@
 import pandas as pd
 import numpy  as np
 
-def read_subjects(spath = './data/round-3/', summary_only = False):
+def read_subjects(spath = './subj_data/', summary_only = False):
     # Number of subjects, subject data list to put foraging frames in
     ns, subj = 351, []
 
@@ -40,16 +40,24 @@ def read_subjects(spath = './data/round-3/', summary_only = False):
     for col in grp.columns:
         if 'qc' not in col:
             grp[col] = grp[col].astype(float)
+        else:
+            grp[col] = grp[col].astype(bool)
 
     return subj, grp
 
-def drop_subjects(subj, grp, droplist):
+def drop_subjects(subj, grp, droplist, reset_index = True):
     # Make sure droplist is sorted and has only unique values
     droplist = np.sort(np.unique(droplist))
 
     # Remove subjects from subject list and group data
-    subj = [s for snum, s in enumerate(subj) if snum not in droplist]
-    grp = grp.drop(droplist).reset_index(drop = True)
+    if reset_index:
+        subj = [s for snum, s in enumerate(subj) if snum not in droplist]
+        grp = grp.drop(droplist).reset_index(drop = True)
+    else:
+        for snum, s in enumerate(subj):
+            if snum in droplist:
+                subj[snum][:] = np.nan
+        grp = grp.drop(droplist)
 
     return subj, grp
 

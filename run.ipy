@@ -1,104 +1,61 @@
-# Standard imports
-from matplotlib import pyplot as plt
-import numpy  as np
-import scipy  as sp
-
-# Project imports 
-from reads import *
-from analy import *
-from plots import *
-
-# Toggle for plotting
-make_plots = True
-plt.ion()
+from configs import *
+save_figs = True
 
 # Read data, get basic foraging stats, QC
 subj, grp = read_subjects(summary_only = True)      # Get subject data
 grp = get_foraging_response_stats(subj, grp)        # Extract basic subject foraging behaviour
-grp = basic_quality_controls(grp)                   # Pre-analysis quality controls
 
-droplist = np.where(grp['ntrials'] < 20)[0]         # Subject without enough by-condition data
-subj, grp = drop_subjects(subj, grp, droplist)      # Drop subjects with too few trials
+# Drop two bad subjects without enough trials, clearly not doing the task
+droplist = np.where(grp['ntrials'] < 15)[0]
+subj, grp = drop_subjects(subj, grp, droplist, reset_index=True)
 
-# Get linear models of subject timing data
+# Get linear models of subject timing data, perform group level analyses
 grp = get_subject_policy_changes_over_time(subj, grp)
+subj, grp, summary = analyze_subjects(subj, grp)
 
-# Perform group level analyses
-subj, grp, summary = analyze_subjects(subj, grp)    # Includes stats for response conditions
-grp = foraging_quality_controls(grp)                # Outlier detection on foraging stats
-
-# Perform QCs which depend on group analyses
-grp = pca_quality_controls(grp)                     # Outlier detection on PCs
-
-# Drop PC outliers
-droplist = np.where(~(grp['all_pca_qc'] & grp['foraging_qc']))[0]
-subj, grp = drop_subjects(subj, grp, droplist)
+# Apply all quality controls in a first pass
+subj, grp = quality_controls(subj, grp, plot=True, thresh=3, drop=True)
 
 # Recompute PCs
 subj, grp, summary = analyze_subjects(subj, grp)
-
 
 #---------------------------------  Plots -----------------------------------#
 if make_plots:
 
     # Figure 1    
-    plot_conditions()                   # Condition instantaneous rates and accumulated reward    
+    plot_reward_rate_conds(fname='fig-1b-reward_rates')             # Condition instantaneous rates
+    plot_reward_cumulative_conds(fname='fig-1c-reward_cumulative')  # Condition cumulative rates
     
     # Figure 2
-    plot_durations(grp)                 # Subject durations by condition
-    plot_exits(grp)                     # Subject durations by condition
-    plot_dur_diffs(grp)                 # Subject durations for best minus those for mid, and mid-worst
-    plot_latencies(grp)                 # Subject latencies by condition
-    plot_reward_dist(grp)               # Distribution of subjects' rewards
+    plot_durations(grp, fname='fig-2a')                 # Subject durations by condition
+    plot_avg_dur_vs_reward(grp, fname='fig-2b')         # Average duration vs reward
+    plot_avg_lat_vs_reward(grp, fname='fig-2c')
+    plot_exits(grp, fname='fig-2d')                     # Subject durations by condition
+    plot_exit_devs(grp, fname='fig-2e')                 # Subject durations for best minus those for mid, and mid-worst
+    plot_exit_diff_by_thresh(grp, fname='fig-2f')       # Exit differences by threshold
 
     # Figure 3
-    plot_dur_pca(grp)                # PCA of policy models
-    plot_exit_pca(grp)
-    plot_both_ve(grp)
-    plot_dur_pc_scores(grp)             # 
-    plot_exit_pc_scores(grp)
+    plot_both_ve(grp, fname='fig-3a')                   # VE plots for duration and exit threshold PCAs
+    plot_stay_pca(summary, type='dur' , fname='fig-3b')
+    plot_stay_pca(summary, type='exit', fname='fig-3c')
+    plot_policy_sweep_heatmap(grp, fname='fig-3d')
+    plot_dur_vs_exit(grp, fname='fig-3e')
+    plot_dur_pc_scores(grp, fname='fig-3f')
     
-
-    #plot_policy_models(subj, grp)       # Reduced policy model timing & reward VEs 
-
     # Figure 4
-    plot_exit_threshold_pvalues(subj, grp)
-    
+    plot_pcs_by_time(summary, pc='pc1', fname='fig-4a')             # PC1 scores by time
+    plot_pcs_by_time(summary, pc='pc2', fname='fig-4b')             # PC2 scores by time
+    plot_exit_devs_by_time(summary, fname='fig-4c')                 # Exit deviations by time
+    plot_pc_scores_by_time(grp, pc='pc1', fname='fig-4d')           # PC scores by time
+    plot_pc_scores_by_time(grp, pc='pc2', fname='fig-4e')           # PC scores by time
+    plot_exit_dev_corrs_by_time(grp, fname='fig-4f')                # Exit deviations by time
+
     # Figure 5
-    plot_stay_lms(subj)
-
-    # Figure 6
-    # Predicting policies from other subject data
-    fit_policy_prediction_lms(grp)
-
-    # Figure S1
-    # Changes over the course of the experiment
+    plot_policy_prediction_lms(grp)
 
 
-    # Policy space: reward contours in duration vs differntiation
-    plot_policy_sweep_heatmap()
+    # Misc
+    # plot_reward_dist(grp)               # Distribution of subjects' rewards
+    # plot_dur_diffs(grp)                 # Subject durations for best minus those for mid, and mid-worst
+    # plot_latencies(grp)                 # Subject latencies by condition
     
-    # Subjects' policies in policy space
-    plot_policy_space_subjs(grp.iloc[0:234,:])
-
-    # Policy space: reward contours in duration vs differntiation
-    plot_policy_sweep_heatmap()
-    
-    # Subjects' policies in policy space
-    plot_policy_space_subjs(grp.iloc[234:,:])
-
-    # Distributions of subjects stay-duration slopes
-    plot_policy_slope_CDFs(grp)
-    
-    # Initial and final distributions of policy-quality
-    plot_policy_rew_CDFs(grp)
-    
-    # Impacts of policy changes on reward
-    plot_policy_rew_deltas(grp)
-
-
-
-    # Extra plots
-
-    #plot_durations(grp.iloc[0:234,:])
-    #plot_durations(grp.iloc[234:,:])

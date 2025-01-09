@@ -1,4 +1,4 @@
-from plots import *
+from plot_foraging import *
 
 def plot_policy_models(subj, grp, show_title = False):
 
@@ -694,4 +694,47 @@ def plot_stay_lms_with_performance(subj, grp, model='marginal'):
     # plt.xlabel('Subject Rank')
     # plt.ylabel('High-Low Coefficient')
     # plt.tight_layout()
+
+
+def single_vars(grp, exog_cols):
+    pc1_scores_young = grp['dur_avg_pc1_score'].loc[grp['age_cat']==0]
+    pc1_scores_old   = grp['dur_avg_pc1_score'].loc[grp['age_cat']==1]
+
+    F, p = sp.stats.f_oneway(pc1_scores_young, pc1_scores_old)
+    d = cohen_d(pc1_scores_young, pc1_scores_old)
+
+    pc2_scores_young = grp['dur_avg_pc2_score'].loc[grp['age_cat']==0]
+    pc2_scores_old   = grp['dur_avg_pc2_score'].loc[grp['age_cat']==1]
+
+    F, p = sp.stats.f_oneway(pc2_scores_young, pc2_scores_old)
+    d = cohen_d(pc2_scores_young, pc2_scores_old)
+
+    plt.figure(figsize=[3.3,3])
+    support = np.arange(-1, 1.4, 0.01)
+    kde1 = sp.stats.gaussian_kde(pc1_scores_young)
+    kde2 = sp.stats.gaussian_kde(pc1_scores_old)
+    plt.plot(support, kde1(support), label='Young')
+    plt.plot(support, kde2(support), label='Old')
+    plt.xlabel('PC1 Scores')
+    plt.ylabel('Kernel Density Estimate')
+    plt.legend()
+    plt.tight_layout()
+
+    plt.figure(figsize=[3.3,3])
+    plt.scatter(grp['tol_rtc_med']/1000, grp['dur_avg_pc1_score'], c=grp['rew_tot'], cmap='viridis', s=5)
+    plt.xlabel('ToL Correct RT Median [s]')
+    plt.ylabel('PC1 Scores')
+    plt.tight_layout()
+
+    names = {'pc1':'PC1', 'pc2':'PC2'}
+    for pc in ['pc1', 'pc2']:
+        for exog in exog_cols:
+            drop = np.where(grp[exog].isna())[0]
+            corr = sp.stats.pearsonr(grp[exog].drop(drop), grp['dur_avg_'+pc+'_score'].drop(drop))
+            print(f'Correlation between {exog} and {pc} score: {corr.statistic:0.2f}')
+            print(f'p-value: {corr.pvalue:0.2e}')
+
+            plt.figure(figsize=[3.3,3])
+            plt.scatter(grp[exog].drop(drop), grp['dur_avg_'+pc+'_score'].drop(drop), c=grp['rew_tot'], cmap='viridis', s=5)
+            plt.ylabel(f'{names[pc]} Scores')
 
