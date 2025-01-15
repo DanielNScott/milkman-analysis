@@ -1,5 +1,5 @@
 # Foraging Analyses
-Analysis code for Noham Wolpe's 2023 foraging experiment
+Analysis code for foraging experiment.
 
 ## Approach
 - Subject data is read into a list ```subj[s] = data```
