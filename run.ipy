@@ -1,5 +1,16 @@
+# Generic imports and setup
 from configs import *
-save_figs = True
+
+# Imports from this package
+from reads          import *
+from analy          import *
+from utils          import *
+from qc             import *
+from plot_foraging  import *
+from plot_lms       import *
+from plots_other    import *
+
+#---------------------------------  Subject Data Processing -----------------------------------#
 
 # Read data, get basic foraging stats, QC
 subj, grp = read_subjects(summary_only = True)      # Get subject data
@@ -14,12 +25,12 @@ grp = get_subject_policy_changes_over_time(subj, grp)
 subj, grp, summary = analyze_subjects(subj, grp)
 
 # Apply all quality controls in a first pass
-subj, grp = quality_controls(subj, grp, plot=True, thresh=3, drop=True)
+subj, grp = quality_controls(subj, grp, plot=False, thresh=3, drop=True)
 
 # Recompute PCs
 subj, grp, summary = analyze_subjects(subj, grp)
 
-#---------------------------------  Plots -----------------------------------#
+#---------------------------------  Plots and Statistics -----------------------------------#
 if make_plots:
 
     # Figure 1    
@@ -50,12 +61,45 @@ if make_plots:
     plot_pc_scores_by_time(grp, pc='pc2', fname='fig-4e')           # PC scores by time
     plot_exit_dev_corrs_by_time(grp, fname='fig-4f')                # Exit deviations by time
 
-    # Figure 5
-    plot_policy_prediction_lms(grp)
+    # Figure 5 (panels 1-6)
+    plot_policy_prediction_lms(grp, save_figs=True)
 
+    # Figure 6
+    plot_durations(grp, by_age=True, scatter=False, fname='fig-6a')
+    plot_pooled_stay_durations_by_age(grp, fname='fig-6b')
+    plot_pc_scores_by_age(grp, fname='fig-6c')
+    plot_offset_and_scale_by_time_and_age(grp, var='dur', t0='h0', t1='h1', item='offset', fname='fig-6d')
+    plot_offset_and_scale_by_time_and_age(grp, var='dur', t0='h0', t1='h1', item='scale', fname='fig-6e')
+    plot_policy_prediction_lms_without_residualizing_age(grp, fname='fig-6f')
 
-    # Misc
-    # plot_reward_dist(grp)               # Distribution of subjects' rewards
-    # plot_dur_diffs(grp)                 # Subject durations for best minus those for mid, and mid-worst
-    # plot_latencies(grp)                 # Subject latencies by condition
+    # Supplementary T-test tables
+    # T-test table for age differences in exogenous variables
+    vars = ['age', 'aes_score', 'phq_score', 'tol_acc', 'tol_rtc_med', 'rtt_rt_med']
+    excl = np.where(~grp['exg_qc'])[0]
+    droplist = plot_group_ttest_table(grp, vars, excl, fname='table-1')
+
+    # Drop subjects failing exogenous quality controls
+    vars = ['hl_exit_avg', 'll_exit_avg', 'hh_exit_avg', 'lh_exit_avg', 'exit_avg_diff', 'dur_avg_diff',
+            'dur_avg_pc1_score', 'dur_avg_pc2_score', 'exit_avg_pc1_score', 'exit_avg_pc2_score',
+            'dur_avg_offset', 'dur_avg_scale',
+            'dur_h0_offset', 'dur_h1_offset', 'dur_h0_scale', 'dur_h1_scale']
+    droplist = plot_group_ttest_table(grp, vars, excl=[], fname='table-2')
+
+    # Orphans
+    #plot_lme_of_stay_by_age_and_decay_rate(subj, grp, droplist, type='dur')
+
+    # GLM of offset ~ time (first vs. second half)  + age + age*time + (1 | subject)
+    plot_lme_of_offset_by_split_half_and_age(grp)
+
     
+
+    # Arrange figure panels into combined figures for publication
+    panels = ['a', 'b', 'c', 'd', 'e', 'f']
+    prefix = './figs/fig-'
+    for i in range(1, 6):
+        fignum = str(i)
+        combine_svgs(
+            [prefix + fignum + panel + '.svg' for panel in panels],
+            out_path='./figs/fig-'+fignum+'.svg',
+            ncols=3, nrows=2
+        )
