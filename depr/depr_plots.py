@@ -738,3 +738,68 @@ def single_vars(grp, exog_cols):
             plt.scatter(grp[exog].drop(drop), grp['dur_avg_'+pc+'_score'].drop(drop), c=grp['rew_tot'], cmap='viridis', s=5)
             plt.ylabel(f'{names[pc]} Scores')
 
+
+
+def plot_kde_strip_charts(df, exog, title, split='age', thresh=50):
+    # Drop any locations where there are NaNs
+    no_exog = np.where(df[[exog]].isna().any(axis=1))[0]
+    no_age  = np.where(df[[split]].isna().any(axis=1))[0]
+    keep    = np.setdiff1d(np.arange(len(df)), np.union1d(no_exog, no_age))
+    df      = df.iloc[keep].reset_index(drop=True)
+
+    # Padding parameters for x-axis
+    pad_beg = 0.9
+    pad_end = 1.1
+
+    # Split the data into two groups by 'endog'
+    group0 = df.loc[df[split] <= thresh, exog]
+    group1 = df.loc[df[split]  > thresh, exog]
+
+    # Compute two KDEs on a shared x-grid
+    x_min, x_max = df[exog].min(), df[exog].max()
+    x_vals = np.linspace(x_min*pad_beg, x_max*pad_end, 200)
+
+    kde0 = sp.stats.gaussian_kde(group0)
+    kde1 = sp.stats.gaussian_kde(group1)
+    pdf0 = kde0(x_vals)
+    pdf1 = kde1(x_vals)
+    max_pdf = max(pdf0.max(), pdf1.max())
+
+    # Two subplots, one for KDEs, one for strip charts
+    fig = plt.figure(figsize=(3.3*2, 3*2))
+    grid = fig.add_gridspec(nrows=2, ncols=1, height_ratios=[3, 1], hspace=0.3)
+    ax_kde = fig.add_subplot(grid[0])
+    ax_strip = fig.add_subplot(grid[1])
+
+    # Top Box: Overlaid KDEs
+    ax_kde.plot(x_vals, pdf0, label='Group 0')
+    ax_kde.plot(x_vals, pdf1, label='Group 1')
+
+    # Set x and y limits
+    ax_kde.set_xlim(x_min*pad_beg, x_max*pad_end)
+    ax_kde.set_ylim(0, max_pdf * 1.1)
+
+    ax_kde.set_ylabel('Density (KDE)')
+    ax_kde.set_title(title)
+
+    ax_kde.legend()
+
+    # Bottom Box: Strip Charts
+
+    # We pick different baselines for each group and add jitter.
+    base0, base1 = -0.07, -0.20
+    jitter_amplitude = 0.03
+
+    y_jitter0 = base0 + (np.random.rand(len(group0)) - 0.5) * 2 * jitter_amplitude
+    y_jitter1 = base1 + (np.random.rand(len(group1)) - 0.5) * 2 * jitter_amplitude
+
+    ax_strip.scatter(group0, y_jitter0, alpha=0.7, s=20)
+    ax_strip.scatter(group1, y_jitter1, alpha=0.7, s=20)
+
+    ax_strip.set_xlim(x_min*pad_beg, x_max*pad_end)
+    ax_strip.set_ylim(-0.25, 0)
+    ax_strip.set_yticks([])
+    ax_strip.set_xlabel(exog)
+    ax_strip.set_ylabel('Strip Charts')
+
+    plt.show()
