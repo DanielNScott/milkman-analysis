@@ -1,16 +1,25 @@
 # Standard imports
-from matplotlib import pyplot as plt
 import numpy  as np
 import scipy  as sp
+import scipy.stats as st
+import pandas as pd
 
-# Project imports 
-from reads import *
-from analy import *
-from utils import *
-from plot_foraging import *
-from plot_lms import *
-from qc    import *
+# Plotting
+from matplotlib import pyplot as plt
+import seaborn as sns
+
+# Statsmodels
+import statsmodels.api as sm
+from statsmodels.formula.api import ols
+
+# Plotting configs
+save_path = './figs/'
+dpi = 300
+fmt = 'svg'
 
 # Toggle for plotting
-make_plots = True
+make_plots = False
 plt.ion()
+
+# Reproducibility
+np.random.seed(0)
