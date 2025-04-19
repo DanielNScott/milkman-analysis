@@ -1,12 +1,6 @@
-import numpy  as np
-import pandas as pd
-import scipy  as sp
-
-import statsmodels.api as sm
-from statsmodels.formula.api import ols
+from configs import *
+from utils   import *
 from itertools import product
-
-from utils import *
 
 def get_foraging_response_stats(subj, grp):
     '''Get summary statistics of subject behaviour'''
@@ -38,15 +32,25 @@ def analyze_subjects(subj, grp):
         subj, grp    = get_subject_exit_thresholds(subj, grp, time = time_point, sfx='')
         grp, summary = get_subject_exit_threshold_variation(grp, summary, time=time_point)
 
-    # Get duration, exit, height PCAs
+    # Get duration, exit, height PCAs and pooled conditions
     for time_point, var in product(['avg', 't0', 't1', 'h0', 'h1'], ['dur', 'exit', 'hgt']):
         grp, summary = get_stay_pca(grp, summary, time = time_point, var = var)
+
+        # Averages pooled over initial reward rate
+        grp['-h_'+var+'_'+time_point] = (grp['hh_'+var+'_'+time_point] + grp['lh_'+var+'_'+time_point]) / 2
+        grp['-l_'+var+'_'+time_point] = (grp['hl_'+var+'_'+time_point] + grp['ll_'+var+'_'+time_point]) / 2
 
     # Get optimal policy and subject coordinates
     policy_opt = get_policy_opt()
     subj_base, subj_delta, subj_mod = policy_space(policy_opt, grp)
     grp['dur_scale'] = subj_mod
     grp['dur_scale_resid'] = get_resid(subj_mod, grp.dur_baseline, disp = False)
+
+    policy_opt = get_policy_opt()
+    for time in ['avg', 't0', 't1', 'h0', 'h1']:
+        subj_base, subj_delta, subj_mod = policy_space(policy_opt, grp, time=time, var='dur')
+        grp['dur_'+ time +'_offset'] = subj_delta
+        grp['dur_'+ time +'_scale' ] = subj_mod
 
     # Set some duration parameters
    # grp = get_subject_dur_deviations(grp)
@@ -66,6 +70,18 @@ def analyze_subjects(subj, grp):
     # A few misc variables
     #grp['baseline_composite'] = (robust_zscore(grp['dur_avg_PC1_scores']) + robust_zscore(grp['dur_b_const']))/2
     #grp['hl_composite'] = (robust_zscore(grp['dur_avg_PC2_scores']) + robust_zscore(grp['dur_b_hl']) + robust_zscore(grp['hl_dur_dev']))/3
+
+    # Composite exit thresholds
+    grp['-h_exit_avg'  ] = (grp['hh_exit_avg'] + grp['lh_exit_avg']) / 2
+    grp['-l_exit_avg'  ] = (grp['hl_exit_avg'] + grp['ll_exit_avg']) / 2
+    grp['exit_avg_diff'] = grp['-l_exit_avg'] - grp['-h_exit_avg']
+    grp['exit_avg_diff'] = grp['exit_avg_diff'] * 1e2 # Convert to 1/s
+
+    # Composite durations
+    grp['-h_dur_avg'] = (grp['hh_dur_avg'] + grp['lh_dur_avg']) / 2
+    grp['-l_dur_avg'] = (grp['hl_dur_avg'] + grp['ll_dur_avg']) / 2
+    grp['dur_avg_diff'] = grp['-l_dur_avg'] - grp['-h_dur_avg']
+    grp['dur_avg_diff'] = grp['dur_avg_diff'] * 1e-3 # Convert to s
 
     return subj, grp, summary
 
@@ -473,14 +489,16 @@ def get_policy_rmse(policy, opt_policy):
 
 
 # Determine where subjects live in base-vs-mod space
-def policy_space(policy_opt, grp):
+def policy_space(policy_opt, grp, var='dur', time='avg'):
     
     # Baseline and modulation
     base = np.mean(policy_opt)
     mod  = policy_opt - base
 
     # Conditions
-    conds = ['hl_dur_avg', 'll_dur_avg', 'hh_dur_avg', 'lh_dur_avg']
+    conds = []
+    for case in ['hl', 'll', 'hh', 'lh']:
+        conds.append('_'.join([case, var, time]))
     
     # Get subject coords
     ns = np.shape(grp)[0]
@@ -557,204 +575,6 @@ def run_variance_lms(grp):
     print(res3.summary())
     
     
-
-
-
-def get_noham_AES_stay_rho_1(subj, grp):
-    
-    # Number of subjects
-    ns = len(subj)
-    
-    # Beta lists (to frame later)
-    b0, b1, b2 = [], [], []
-    
-    # Loop through subjects getting their betas
-    for s in range(0, ns):
-        
-        # Get subject duration data
-        X = subj[s][['hl','ll','hh','lh']]
-    
-        # Boolean predictor columns for init and decay
-        X2 = pd.DataFrame( [X['hh'] + X['hl'], X['hh'] + X['lh']], index=['h-', '-h']).T
-        X2 = X2.applymap(lambda x: 1 if x == True else 0)
-    
-        # Replace booleans with init and decay parameter values
-        X2['h-'].map(lambda x: 0.02   if x == 1 else 0.01  )
-        X2['-h'].map(lambda x: 0.0004 if x == 1 else 0.0002)
-        
-        # Add intercept to model
-        X2 = sm.add_constant(X2)
-    
-        # Generate and fit
-        mod = sm.OLS(subj[s].space_down_time, X2)
-        res = mod.fit()
-        
-        # Save the beta values
-        b0.append(res.params.const)
-        b1.append(res.params['h-'])
-        b2.append(res.params['-h'])
-
-
-    # Concatenate betas into a frame
-    betas = pd.DataFrame([b0,b1,b2], index=['b0', 'b1', 'b2']).T
-    
-    # Predict AES with betas (linear model)
-    #res = run_lm(grp.aes, betas, zscore = True, robust = True)
-
-    # Correlate AES rank with beta 0
-    res = sp.stats.spearmanr(grp.aes, b0)
-
-    print('\nSpearman rho (AES, Stay-Baseline):')
-    print(res.statistic)
-    
-    print('\np-value:')
-    print(res.pvalue)
-
-    return betas
-
-
-def get_noham_AES_stay_rho_2(subj, grp):
-    
-    # Number of subjects
-    ns = len(subj)
-    
-    # Beta lists (to frame later)
-    b0, b1, b2 = [], [], []
-    
-    # Loop through subjects getting their betas
-    for s in range(0, ns):
-        
-        # Get subject duration data
-        X = subj[s][['S', 'decay_rate']]
-    
-        # Add intercept to model
-        X = sm.add_constant(X)
-    
-        # Generate and fit
-        mod = sm.RLM(subj[s].space_down_time, X)
-        res = mod.fit()
-        
-        # Save the beta values
-        b0.append(res.params.const)
-        b1.append(res.params['S'])
-        b2.append(res.params['decay_rate'])
-
-    # Concatenate betas into a frame
-    betas = pd.DataFrame([b0,b1,b2], index=['b0', 'b1', 'b2']).T
-    
-    # Predict AES with betas (linear model)
-    #res = run_lm(grp.aes_rank, betas, zscore = False, robust = True)
-
-    # Correlate AES rank with beta 0
-    res = sp.stats.spearmanr(grp.aes, b0)
-        
-    print('\nSpearman rho (AES, Stay-Baseline):')
-    #print(res.statistic)
-    print(res)
-    
-    print('\np-value:')
-    print(res.pvalue)
-
-    return betas
-
-
-def get_noham_AES_stay_rho_3(subj, grp):
-    
-    # Number of subjects
-    ns = len(subj)
-    
-    # Beta lists (to frame later)
-    b0, b1, b2 = [], [], []
-    
-    # Loop through subjects getting their betas
-    for s in range(0, ns):
-        
-        # Get subject duration data
-        X = subj[s][['S', 'decay_rate']]
-        X = sp.stats.zscore(X)
-    
-        # Add intercept to model
-        X = sm.add_constant(X)
-        
-        # Outcome variable
-        #y = sp.stats.zscore(subj[s].space_down_time)
-        y =  subj[s].space_down_time
-        
-        # Generate and fit
-        mod = sm.RLM(y, X)
-        res = mod.fit()
-        
-        # Save the beta values
-        b0.append(res.params.const)
-        b1.append(res.params['S'])
-        b2.append(res.params['decay_rate'])
-
-    # Concatenate betas into a frame
-    betas = pd.DataFrame([b0,b1,b2], index=['b0', 'b1', 'b2']).T
-    
-    # Predict AES with betas (linear model)
-    # res = run_lm(grp.aes, betas, zscore = True, robust = True)
-
-    # Correlate AES rank with beta 0
-    res = sp.stats.spearmanr(grp.aes, b0)
-        
-    print('\nSpearman rho (AES, Stay-Baseline):')
-    print(res.statistic)
-    
-    print('\np-value:')
-    print(res.pvalue)
-
-    return betas
-
-
-def get_noham_AES_stay_rho_4(subj, grp):
-    
-    # Number of subjects
-    ns = len(subj)
-    
-    # Beta lists (to frame later)
-    b0, b1, b2 = [], [], []
-    
-    # Loop through subjects getting their betas
-    for s in range(0, ns):
-        
-        # Get subject duration data
-        X = subj[s][['S', 'decay_rate']]
-        X = sp.stats.zscore(X)
-    
-        # Add intercept to model
-        X = sm.add_constant(X)
-        
-        # Outcome variable
-        #y = sp.stats.zscore(subj[s].space_down_time)
-        
-        y = robust_zscore(subj[s].space_down_time)
-        
-        # Generate and fit
-        mod = sm.RLM(y, X)
-        res = mod.fit()
-        
-        # Save the beta values
-        b0.append(res.params.const)
-        b1.append(res.params['S'])
-        b2.append(res.params['decay_rate'])
-
-    # Concatenate betas into a frame
-    betas = pd.DataFrame([b0,b1,b2], index=['b0', 'b1', 'b2']).T
-    
-    # Predict AES with betas (linear model)
-    # res = run_lm(grp.aes, betas, zscore = True, robust = True)
-
-    # Correlate AES rank with beta 0
-    res = sp.stats.spearmanr(grp.aes, b0)
-        
-    print('\nSpearman rho (AES, Stay-Baseline):')
-    print(res.statistic)
-    
-    print('\np-value:')
-    print(res.pvalue)
-
-    return betas
 
 
 
@@ -839,8 +659,6 @@ def fit_stay_lms_full(subj, grp, type='dur'):
     return grp
 
 
-    
-
 def get_stay_pca(grp, summary, time='avg', var='dur', verbose=False):
     if verbose:
         print('Getting PCA for ' + var + ' at ' + time)
@@ -852,12 +670,12 @@ def get_stay_pca(grp, summary, time='avg', var='dur', verbose=False):
     evals_jse = jse(vals, lambda x: PCA(x, pos_const=True)[1])
 
     scale = {'dur':1/10000, 'exit':1000, 'hgt':1}
-
+    
     grp[var+'_'+time+'_pc1_score'] = (vals - np.mean(vals,axis=0))@ evecs[:,0]*scale[var]
     grp[var+'_'+time+'_pc2_score'] = (vals - np.mean(vals,axis=0))@ evecs[:,1]*scale[var]
 
     if var == 'dur':
-        grp['dur_baseline']   = (vals - np.mean(vals,axis=0))@ np.ones(4)/np.sqrt(4)*scale[var]
+        grp['dur_baseline']  = (vals - np.mean(vals,axis=0))@ np.ones(4)/np.sqrt(4)*scale[var]
 
     for i in range(0,4):
         summary[var+'_'+time+'_pc'+str(i+1)] = evecs[:,i]
