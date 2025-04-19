@@ -1,13 +1,4 @@
-# External imports
-import numpy as np
-import scipy as sp
-import scipy.stats as st
-import pandas as pd
-
-from matplotlib import pyplot as plt
-import seaborn as sns
-
-import statsmodels.api as sm
+from configs import *
 from utils import robust_zscore
 
 def plot_grouped_bars(array, title=None, xlabel=None, ylabel=None, xticklabels=None, legend=None, rotation=0, figsize=(6, 4), yerr=None, colors=None):
@@ -155,5 +146,5 @@ def plot_column_histograms(df):
         plt.grid()
 
         plt.tight_layout()
-        plt.savefig('./data/figs/hist_'+col+'.png', dpi=120)
+        plt.savefig('./data/figs/hist_'+col+'.png', dpi=dpi, format=fmt)
         plt.close()

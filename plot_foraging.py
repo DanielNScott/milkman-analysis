@@ -1,13 +1,7 @@
-import numpy as np
-import scipy as sp
-from matplotlib import pyplot as plt
-from analy import *
-from utils import *
+from configs    import *
+from analy      import *
+from utils      import *
 from plot_utils import *
-
-save_path = './figs/'
-save_figs = True
-dpi = 200
 
 def plot_reward_rate_conds(fname=None):
     t = np.arange(0,20000)
@@ -27,7 +21,7 @@ def plot_reward_rate_conds(fname=None):
     plt.ylabel('Reward Rate [1/ms]')
     plt.legend(['High-Slow', 'Low-Slow', 'High-Fast', 'Low-Fast'])
     plt.tight_layout()
-    if fname is not None: plt.savefig(save_path+fname, dpi=dpi)
+    if fname is not None: plt.savefig(save_path+fname+'.'+fmt, dpi=dpi, format=fmt)
 
 
 def plot_reward_cumulative_conds(fname=None):
@@ -49,9 +43,9 @@ def plot_reward_cumulative_conds(fname=None):
     plt.legend(['High-Slow', 'Low-Slow', 'High-Fast', 'Low-Fast'])
     plt.tight_layout()
 
-    if fname is not None: plt.savefig(save_path+fname, dpi=dpi)
+    if fname is not None: plt.savefig(save_path+fname+'.'+fmt, dpi=dpi, format=fmt)
 
-def plot_durations(grp, by_age = False, show_title = False, fname=None):
+def plot_durations(grp, by_age = False, show_title = False, scatter=True, fname=None):
     
     # Get optimal and subject policies
     policy_opt = get_policy_opt()*1e-3
@@ -70,21 +64,25 @@ def plot_durations(grp, by_age = False, show_title = False, fname=None):
     plt.plot([0,1,2,3], policy_opt, '--ok')
 
     if by_age:
-        avg_young = np.mean(avg[grp['age_cat'] == 0])
-        avg_old   = np.mean(avg[grp['age_cat'] == 1])
-        plt.plot([0,1,2,3], avg_young , '--om')
-        plt.plot([0,1,2,3], avg_old   , '--or')
+        avg_young = np.mean(avg[grp['age_cat'] == 0],axis=0)
+        avg_old   = np.mean(avg[grp['age_cat'] == 1],axis=0)
+        sem_young = np.std(avg[grp['age_cat'] == 0])/np.sqrt(np.sum(grp['age_cat'] == 0))
+        sem_old   = np.std(avg[grp['age_cat'] == 1])/np.sqrt(np.sum(grp['age_cat'] == 1))
+
+        plt.errorbar([0,1,2,3], avg_young , 2*sem_young, linestyle='--', marker='o', color='m')
+        plt.errorbar([0,1,2,3], avg_old   , 2*sem_old  , linestyle='--', marker='o', color='r')
     else:
         plt.plot([0,1,2,3], np.mean(avg,0) , '--or')
 
     # Subject data
-    plt.scatter(np.random.normal(0,0.1,ns), avg.iloc[:,0], c = grp.rew_tot, cmap = cmap, s = 5)
-    plt.scatter(np.random.normal(1,0.1,ns), avg.iloc[:,1], c = grp.rew_tot, cmap = cmap, s = 5)
-    plt.scatter(np.random.normal(2,0.1,ns), avg.iloc[:,2], c = grp.rew_tot, cmap = cmap, s = 5)
-    plt.scatter(np.random.normal(3,0.1,ns), avg.iloc[:,3], c = grp.rew_tot, cmap = cmap, s = 5)
+    if scatter:
+        plt.scatter(np.random.normal(0,0.1,ns), avg.iloc[:,0], c = grp.rew_tot, cmap = cmap, s = 5)
+        plt.scatter(np.random.normal(1,0.1,ns), avg.iloc[:,1], c = grp.rew_tot, cmap = cmap, s = 5)
+        plt.scatter(np.random.normal(2,0.1,ns), avg.iloc[:,2], c = grp.rew_tot, cmap = cmap, s = 5)
+        plt.scatter(np.random.normal(3,0.1,ns), avg.iloc[:,3], c = grp.rew_tot, cmap = cmap, s = 5)
 
     if by_age:
-        plt.legend(['Optimal', 'Means (young)', 'Means (old)'])
+        plt.legend(['Optimal', 'Mean +- 2SE, Young', 'Mean +- 2SE, Old'])
     else:
         plt.legend(['Optimal', 'Means'])
 
@@ -96,15 +94,18 @@ def plot_durations(grp, by_age = False, show_title = False, fname=None):
     
     plt.ylabel('Stay Durations [s]')
 
-    plt.ylim([0,20])
+    if scatter:
+        plt.ylim([0,20])
+
     if show_title:
         plt.title('Subject Stay-Durations')
 
-    cbar = plt.colorbar()
-    cbar.set_label('Total Reward', rotation=270, va='bottom')
+    if scatter:
+        cbar = plt.colorbar()
+        cbar.set_label('Total Reward', rotation=270, va='bottom')
     plt.tight_layout()
 
-    if fname is not None: plt.savefig(save_path+fname, dpi=dpi)
+    if fname is not None: plt.savefig(save_path+fname+'.'+fmt, dpi=dpi, format=fmt)
 
     # Print statistics
     formatted_policy_opt = ' '.join([f'{x:0.2e}' for x in policy_opt])
@@ -141,7 +142,7 @@ def plot_avg_dur_vs_reward(grp, fname=None):
     #cbar = plt.colorbar()
     #cbar.set_label('Total Reward', rotation=270, va='bottom')
     plt.tight_layout()
-    if fname is not None: plt.savefig(save_path+fname, dpi=dpi)
+    if fname is not None: plt.savefig(save_path+fname+'.'+fmt, dpi=dpi, format=fmt)
 
 def plot_avg_lat_vs_reward(grp, fname=None):
     cols = ['hl_lat_avg', 'll_lat_avg', 'hh_lat_avg', 'lh_lat_avg']
@@ -154,7 +155,7 @@ def plot_avg_lat_vs_reward(grp, fname=None):
     #cbar = plt.colorbar()
     #cbar.set_label('Total Reward', rotation=270, va='bottom')
     plt.tight_layout()
-    if fname is not None: plt.savefig(save_path+fname, dpi=dpi)
+    if fname is not None: plt.savefig(save_path+fname+'.'+fmt, dpi=dpi, format=fmt)
 
     corr = sp.stats.pearsonr(avg_lat, grp['rew_tot'])
     print(f'Correlation between latency and reward: {corr.statistic:0.2f}')
@@ -210,7 +211,7 @@ def plot_exits(grp, by_age = False, show_title = False, fname=None):
     if show_title:
         plt.title('Subject Exit Thresholds')
     plt.tight_layout()
-    if fname is not None: plt.savefig(save_path+fname, dpi=dpi)
+    if fname is not None: plt.savefig(save_path+fname+'.'+fmt, dpi=dpi, format=fmt)
 
     formatted_thresh_opt = ' '.join([f'{x:0.2e}' for x in thresh_opt])
     print(f'Optimal thresholds: {formatted_thresh_opt}')
@@ -259,7 +260,7 @@ def plot_exit_devs(grp, by_age = False, show_title = False, sfx='', fname=None):
     ax.set_xticklabels(conds, rotation = 30)
     plt.ylabel('Exit Threshold Dev.s [1/s]')
     plt.tight_layout()
-    if fname is not None: plt.savefig(save_path+fname, dpi=dpi)
+    if fname is not None: plt.savefig(save_path+fname+'.'+fmt, dpi=dpi, format=fmt)
 
     compare_means(devs[:,0], devs[:,1], labels=['High-Slow', 'Low-Slow'])
     compare_means(devs[:,1], devs[:,2], labels=['Low-Slow' , 'High-Fast'])
@@ -288,7 +289,7 @@ def plot_exit_diff_by_thresh(grp, fname=None):
     plt.xlabel('Exit Threshold Average [1/s]')
     plt.ylabel('Exit Threshold Max - Min [1/s]')
     plt.tight_layout()
-    if fname is not None: plt.savefig(save_path+fname, dpi=dpi)
+    if fname is not None: plt.savefig(save_path+fname+'.'+fmt, dpi=dpi, format=fmt)
 
 
 
@@ -329,7 +330,7 @@ def plot_both_ve(grp, fname=None):
     plt.xlabel('Principal Component')
     plt.ylabel('Cumulative Proportion VE')
     plt.tight_layout()
-    if fname is not None: plt.savefig(save_path+fname, dpi=dpi)
+    if fname is not None: plt.savefig(save_path+fname+'.'+fmt, dpi=dpi, format=fmt)
 
 
 def plot_stay_pca(summary, type = 'dur', time = 'avg', fname=None):
@@ -340,7 +341,7 @@ def plot_stay_pca(summary, type = 'dur', time = 'avg', fname=None):
     # Plot of PCs
     plot_grouped_bars(pcs[0:2,:], xticklabels=['High-Slow', 'Low-Slow', 'High-Fast', 'Low-Fast'], ylabel='Loadings', rotation = 30, figsize=[3.3,3], yerr=err)
     plt.legend(['PC1','PC2'],loc='lower left')
-    if fname is not None: plt.savefig(save_path+fname, dpi=dpi)
+    if fname is not None: plt.savefig(save_path+fname+'.'+fmt, dpi=dpi, format=fmt)
 
     # Plot of variance explained
     #plt.figure(figsize=[3.3,3])
@@ -411,7 +412,7 @@ def plot_policy_sweep_heatmap(grp, figsize = [3.3,3], show_title = False, fname=
     # Plot them
     plt.scatter(subj_mod, subj_delta*1e-3, zorder=10, c = grp.rew_tot, s=7.5)
     plt.tight_layout()
-    if fname is not None: plt.savefig(save_path+fname, dpi=dpi)
+    if fname is not None: plt.savefig(save_path+fname+'.'+fmt, dpi=dpi, format=fmt)
 
     corr = sp.stats.pearsonr(subj_mod, subj_delta)
     print(f'Correlation between scaling and offset: {corr.statistic:0.2f}')
@@ -444,7 +445,7 @@ def plot_dur_vs_exit(grp, fname=None):
     plt.xlabel('Duration PC1 Score')
     plt.ylabel('Exit PC1 Score')
     plt.tight_layout()
-    if fname is not None: plt.savefig(save_path+fname, dpi=dpi)
+    if fname is not None: plt.savefig(save_path+fname+'.'+fmt, dpi=dpi, format=fmt)
 
 def plot_dur_pc_scores(grp, fname=None):
     plt.figure(figsize=[3.3,3])
@@ -452,7 +453,7 @@ def plot_dur_pc_scores(grp, fname=None):
     plt.xlabel('Dur. PC1 Scores')
     plt.ylabel('Dur. PC2 Scores')
     plt.tight_layout()
-    if fname is not None: plt.savefig(save_path+fname, dpi=dpi)
+    if fname is not None: plt.savefig(save_path+fname+'.'+fmt, dpi=dpi, format=fmt)
 
 
 
@@ -465,7 +466,7 @@ def plot_pcs_by_time(summary, type='dur', pc='pc1', fname=None):
 
     plot_grouped_bars(pcs, xticklabels=['High-Slow', 'Low-Slow', 'High-Fast', 'Low-Fast'], ylabel=pc+' Loadings', rotation = 30, figsize=[3.3,3], yerr=2*err, colors=colors[pc])
     plt.legend(['Average','Start','End'])
-    if fname is not None: plt.savefig(save_path+fname, dpi=dpi)
+    if fname is not None: plt.savefig(save_path+fname+'.'+fmt, dpi=dpi, format=fmt)
 
     normed_t0 = summary[type+'_t0_'+pc]/np.linalg.norm(summary[type+'_t0_'+pc])
     normed_t1 = summary[type+'_t1_'+pc]/np.linalg.norm(summary[type+'_t1_'+pc])
@@ -481,12 +482,12 @@ def plot_exit_devs_by_time(summary, fname=None):
     # Stack PCs
     colors = ['#4d31aa', '#826ad3', '#c2b6e9']
 
-    pcs = np.stack([summary[key] for key in ['exit_dev_means_avg', 'exit_dev_means_t0', 'exit_dev_means_t1']])
-    err = np.stack([summary[key] for key in ['exit_dev_sems_avg', 'exit_dev_sems_t0', 'exit_dev_sems_t1']])
+    pcs = np.stack([summary[key] for key in ['exit_dev_means_avg', 'exit_dev_means_t0', 'exit_dev_means_t1']])*1e2
+    err = np.stack([summary[key] for key in ['exit_dev_sems_avg', 'exit_dev_sems_t0', 'exit_dev_sems_t1']])*1e2
 
     plot_grouped_bars(pcs, xticklabels=['High-Slow', 'Low-Slow', 'High-Fast', 'Low-Fast'], ylabel='Average', rotation = 30, figsize=[3.3,3], yerr=2*err, colors=colors)
     plt.legend(['Average','Start','End'])
-    if fname is not None: plt.savefig(save_path+fname, dpi=dpi)
+    if fname is not None: plt.savefig(save_path+fname+'.'+fmt, dpi=dpi, format=fmt)
 
     #normed_t0 = summary['exit_dev_means_t0_'+pc]/np.linalg.norm(summary['exit_dev_means_t0_'+pc])
     #normed_t1 = summary['exit_dev_means_t1_'+pc]/np.linalg.norm(summary['exit_dev_means_t1_'+pc])
@@ -505,7 +506,7 @@ def plot_pc_scores_by_time(grp, var='dur', varname='Duration', pc='pc1', fname=N
     plt.xlabel(f'{varname} Start {pcname} Scores')
     plt.ylabel(f'{varname} End {pcname} Scores')
     plt.tight_layout()
-    if fname is not None: plt.savefig(save_path+fname, dpi=dpi)
+    if fname is not None: plt.savefig(save_path+fname+'.'+fmt, dpi=dpi, format=fmt)
 
     #good = grp[key+'_t0_pc2_score']>-1.0
     corr = sp.stats.spearmanr(grp[f'{var}_h0_'+pc+'_score'], grp[f'{var}_h1_'+pc+'_score'])
@@ -542,7 +543,7 @@ def plot_exit_dev_corrs_by_time(grp, fname=None):
         ax.set_xticklabels(xticklabels, rotation=30)
         ax.set_ylabel('Spearman Rank Correlation')
         plt.tight_layout()
-        if fname is not None: plt.savefig(save_path+fname, dpi=dpi)
+        if fname is not None: plt.savefig(save_path+fname+'.'+fmt, dpi=dpi, format=fmt)
 
         print(f'Deviation correlations {varname}: {corrs}')
         print(f'Deviation p-values {varname}: {pvals}')

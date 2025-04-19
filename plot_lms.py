@@ -1,14 +1,9 @@
-import numpy as np
-from matplotlib import pyplot as plt
+from configs    import *
 from analy      import *
 from utils      import *
 from plot_utils import *
 
-save_figs = True
-save_path = './figs/'
-dpi = 200
-
-def plot_policy_prediction_lms(grp):
+def plot_policy_prediction_lms(grp, save_figs=False):
 
     # Regressors for primary outcome variables, excluding age
     #exog_cols = [
@@ -54,7 +49,8 @@ def plot_policy_prediction_lms(grp):
 
     # Age model results
     plot_age_lm_results(age_models, figsize=[3.3*1,3])
-    if save_figs: plt.savefig(save_path+'fig-5a', dpi=dpi)
+    fname = 'fig-5a'
+    if save_figs: plt.savefig(save_path+fname+'.'+fmt, dpi=dpi, format=fmt)
 
     #
     #plot_correlation_matrix(grp  , regcnames)
@@ -89,23 +85,27 @@ def plot_policy_prediction_lms(grp):
     sfx = ['b', 'c']
     for endog_col, name in zip(endog_cols, endog_names):
         plot_lm_results(models, cols=[endog_col], cnames = regcnames, labels = [name], figsize=[3.3*1,3], legend=False)
-        if save_figs: plt.savefig(save_path+'fig-5'+sfx[i], dpi=dpi)
+        fname = 'fig-5'+sfx[i]
+        if save_figs: plt.savefig(save_path+fname+'.'+fmt, dpi=dpi, format=fmt)
         i += 1
 
     x = grp['age']
     y = grp['dur_avg_pc1_score']
     scatter_with_lm_fit(x=x, y=y, c=grp['rew_tot'], xlabel='Age', ylabel='PC1 Score')
-    if save_figs: plt.savefig(save_path+'fig-5d', dpi=dpi)
+    fname = 'fig-5d'
+    if save_figs: plt.savefig(save_path+fname+'.'+fmt, dpi=dpi, format=fmt)
 
     x = grp['phq_score']
     y = grp['dur_avg_pc1_score']
     scatter_with_lm_fit(x=x, y=y, c=grp['rew_tot'], xlabel='PHQ (Total Score)', ylabel='PC1 Score')
-    if save_figs: plt.savefig(save_path+'fig-5e', dpi=dpi)
+    fname = 'fig-5e'
+    if save_figs: plt.savefig(save_path+fname+'.'+fmt, dpi=dpi, format=fmt)
 
     x = grp['tol_rtc_med']/1000
     y = grp['dur_avg_pc1_score']
     scatter_with_lm_fit(x=x, y=y, c=grp['rew_tot'], xlabel='ToL RTc Median [s]', ylabel='PC1 Score')
-    if save_figs: plt.savefig(save_path+'fig-5f', dpi=dpi)
+    fname = 'fig-5f'
+    if save_figs: plt.savefig(save_path+fname+'.'+fmt, dpi=dpi, format=fmt)
 
     # x = resid['phq_score']
     # y = endog['dur_avg_pc1_score']
@@ -400,4 +400,3 @@ def plot_policy_prediction_lms_disaggregated(grp):
     plt.legend()
     plt.ylabel('Standard Coeff.')
     plt.tight_layout()
-
