@@ -3,6 +3,10 @@ from scipy import stats
 import scipy  as sp
 import statsmodels.api as sm
 
+import copy
+import re
+import xml.etree.ElementTree as ET
+
 def compare_means(values_1, values_2, print_results=True, labels = ['Group 1', 'Group 2']):
 
     if len(values_2) == 1:
@@ -199,5 +203,144 @@ def iterative_outlier_pruning_df(df, thresh = 5):
         df = df.drop(inds, axis=0).reset_index(drop=True)
         inds = find_outliers_df(df, thresh)
     return df
+
+## ----------------------------------------------------------------------- ##
+##                       SVG Manipulation Functions                        ##
+## ----------------------------------------------------------------------- ##
+def parse_pixel_size(size_str):
+    """
+    Parse an SVG dimension string (e.g., '300px', '237.6pt', '3.5in')
+    into approximate float (pixel) units. Returns None if parsing fails.
+    """
+    if not size_str:
+        return None
+    s = size_str.strip().lower()
+
+    # Regex: numeric + optional unit
+    match = re.match(r"^([\d\.]+)(px|pt|in|cm|mm)?$", s)
+    if not match:
+        return None
+
+    numeric_val, unit = match.groups()
+    val = float(numeric_val)
+
+    # Convert to px
+    if unit is None or unit == 'px':
+        return val
+    elif unit == 'pt':
+        # 1 pt = 1/72 in, 1 in = 96 px => 1 pt = 1.3333 px
+        return val * 96.0/72.0
+    elif unit == 'in':
+        return val * 96.0
+    elif unit == 'cm':
+        return val * 37.79527559
+    elif unit == 'mm':
+        return val * 3.779527559
+    return None
+
+def parse_viewbox(svg_element):
+    """
+    If the element has a 'viewBox' attribute like "0 0 400 300", return (width, height)
+    from the last two numbers. Return None if not present or invalid.
+    """
+    viewbox = svg_element.attrib.get('viewBox')
+    if not viewbox:
+        return None
+    # Typically "minX minY width height"
+    parts = viewbox.strip().split()
+    if len(parts) != 4:
+        return None
+    try:
+        # We only care about the width, height portion
+        vb_width = float(parts[2])
+        vb_height = float(parts[3])
+        return (vb_width, vb_height)
+    except ValueError:
+        return None
+
+def combine_svgs(svg_paths, out_path, ncols=None, nrows=None):
+    """
+    Combine multiple SVGs into a single SVG, preserving vector data.
+    - If a child has a viewBox, we interpret the child's size from that,
+      ignoring 'width'/'height' in the child.
+    - If no viewBox, we fall back on child's width/height attributes.
+    - Then all cells are placed in a uniform grid, each cell sized to the
+      first child's bounding box.
+
+    # Example usage
+    svg_files = ["./test.svg"]*6
+    combine_svgs_same_size(svg_files, "combined.svg", ncols=3, nrows=2)
+    """
+    import math
+
+    if not svg_paths:
+        raise ValueError("No SVG paths provided.")
+
+    # Parse first SVG to get the canonical child cell size
+    first_tree = ET.parse(svg_paths[0])
+    first_root = first_tree.getroot()
+
+    # 1) Try child viewBox
+    vb_dims = parse_viewbox(first_root)
+    if vb_dims is not None:
+        sub_width_px, sub_height_px = vb_dims
+    else:
+        # 2) Fallback: parse child's width/height
+        w_str = first_root.attrib.get('width', '')
+        h_str = first_root.attrib.get('height', '')
+        sub_width_px = parse_pixel_size(w_str)
+        sub_height_px = parse_pixel_size(h_str)
+        if sub_width_px is None or sub_height_px is None:
+            raise ValueError("Cannot determine sub-SVG size from first file")
+
+    # Decide how many rows/cols to layout
+    n_plots = len(svg_paths)
+    if ncols is None and nrows is None:
+        ncols = int(math.ceil(math.sqrt(n_plots)))
+        nrows = int(math.ceil(n_plots / ncols))
+    elif ncols is None:
+        ncols = int(math.ceil(n_plots / nrows))
+    elif nrows is None:
+        nrows = int(math.ceil(n_plots / ncols))
+
+    # Master <svg> total size in px (based on sub_width_px, sub_height_px)
+    total_width = sub_width_px * ncols
+    total_height = sub_height_px * nrows
+
+    # Create a blank master <svg>
+    master_str = f'''<svg width="{total_width}px" height="{total_height}px"
+                      version="1.1"
+                      xmlns="http://www.w3.org/2000/svg">
+                     </svg>'''
+    master_root = ET.fromstring(master_str)
+
+    def transform_for_position(i):
+        """Translate sub-SVG to row/col in the grid."""
+        row = i // ncols
+        col = i % ncols
+        x = col * sub_width_px
+        y = row * sub_height_px
+        return f"translate({x},{y})"
+
+    for i, path in enumerate(svg_paths):
+        tree = ET.parse(path)
+        child_svg = tree.getroot()
+        sub_copy = copy.deepcopy(child_svg)
+
+        # We'll remove the child's 'width', 'height', and 'viewBox' (if present),
+        # so that it doesn't forcibly define its own size or scale.
+        for attr in ['width', 'height', 'viewBox']:
+            if attr in sub_copy.attrib:
+                del sub_copy.attrib[attr]
+
+        # Rename <svg> to <g> to avoid nested <svg> complexities
+        sub_copy.tag = '{http://www.w3.org/2000/svg}g'
+
+        # Place it
+        sub_copy.set('transform', transform_for_position(i))
+
+        master_root.append(sub_copy)
+
+    ET.ElementTree(master_root).write(out_path, encoding='utf-8', xml_declaration=True)
 
 
