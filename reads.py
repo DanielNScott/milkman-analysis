@@ -18,7 +18,8 @@ def read_subjects(spath = './subj_data/', summary_only = False):
         rtt_df = read_subject_file_rtt(snum = snum, spath = spath)
         
         # Merge the summary data
-        joined = pd.concat([aes_df, phq_df, tol_df, rtt_df], axis=1)
+        sid_df = pd.DataFrame([snum], columns=['sid'])
+        joined = pd.concat([sid_df, aes_df, phq_df, tol_df, rtt_df], axis=1)
 
         # If this is the first read, initialize columns for group data
         if snum == 1:
@@ -46,17 +47,23 @@ def read_subjects(spath = './subj_data/', summary_only = False):
     return subj, grp
 
 def drop_subjects(subj, grp, droplist, reset_index = True):
+    '''
+    Drops subjects from subject list and group data. Accepts empty subject list.
+    '''
+
     # Make sure droplist is sorted and has only unique values
     droplist = np.sort(np.unique(droplist))
 
     # Remove subjects from subject list and group data
     if reset_index:
-        subj = [s for snum, s in enumerate(subj) if snum not in droplist]
+        if len(subj) > 0:
+            subj = [s for snum, s in enumerate(subj) if snum not in droplist]
         grp = grp.drop(droplist).reset_index(drop = True)
     else:
-        for snum, s in enumerate(subj):
-            if snum in droplist:
-                subj[snum][:] = np.nan
+        if len(subj) > 0:
+            for snum, s in enumerate(subj):
+                if snum in droplist:
+                    subj[snum][:] = np.nan
         grp = grp.drop(droplist)
 
     return subj, grp
