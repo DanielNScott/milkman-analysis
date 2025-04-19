@@ -6,7 +6,6 @@ from reads import drop_subjects
 def quality_controls(subj, grp, plot=True, thresh=3, drop=True):
     # Check for reasonable RTs in RT task
     grp['rtt_qc'] = np.abs(robust_zscore(grp['rtt_rt_med'])) < thresh
-    plot_qc_thresh(grp['rtt_rt_med'], lb=-thresh, ub=thresh, title='RTT RT Median'   , ttype='zscore')
 
     # Subjects with missing data (usually age or from ToL perfect score)
     grp['inc_qc'] = grp.isna().sum(axis=1) == 0
@@ -20,9 +19,11 @@ def quality_controls(subj, grp, plot=True, thresh=3, drop=True):
     grp['lat_qc'] = np.abs(robust_zscore(grp['lat_avg'])) < thresh
     grp['dur_qc'] = np.abs(robust_zscore(grp['dur_avg'])) < thresh
 
-    plot_qc_thresh(grp['rew_tot'], lb=-thresh, ub=thresh, title='Total Reward'    , ttype='zscore')
-    plot_qc_thresh(grp['dur_avg'], lb=-thresh, ub=thresh, title='Average Duration', ttype='zscore')
-    plot_qc_thresh(grp['lat_avg'], lb=-thresh, ub=thresh, title='Average Latency' , ttype='zscore')
+    if plot:
+        plot_qc_thresh(grp['rtt_rt_med'], lb=-thresh, ub=thresh, title='RTT RT Median'   , ttype='zscore')
+        plot_qc_thresh(grp['rew_tot'], lb=-thresh, ub=thresh, title='Total Reward'    , ttype='zscore')
+        plot_qc_thresh(grp['dur_avg'], lb=-thresh, ub=thresh, title='Average Duration', ttype='zscore')
+        plot_qc_thresh(grp['lat_avg'], lb=-thresh, ub=thresh, title='Average Latency' , ttype='zscore')
 
     # All PCA QCs
     grp = pca_quality_controls(grp, vars=['dur'], times=['avg'], plot=plot, thresh=thresh)
